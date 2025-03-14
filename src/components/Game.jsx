@@ -5,41 +5,51 @@ import { useLocation, useNavigate } from "react-router-dom";
 import "../css/Game.css";
 
 const Game = () => {
-  const canvasRef = useRef(null);
+  const canvasRef = useRef(null); // Referencia al elemento <canvas>
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, opponent } = location.state || {}; // Obtener user y opponent del estado de la navegación
+  const { gameId, user, opponent, isCreator } = location.state || {}; // Obtener gameId, user, opponent y isCreator del estado de la navegación
 
   const [playerPosition, setPlayerPosition] = useState({ x: 100, y: 100 });
-  const [opponentPosition, setOpponentPosition] = useState({ x: 300, y: 100 });
+  const [opponentPosition, setOpponentPosition] = useState(null); // Inicialmente null
   const [waitingForOpponent, setWaitingForOpponent] = useState(true); // Estado de espera
 
   // Referencias a las posiciones en Realtime Database
-  const playerRef = ref(realtimeDb, `games/${user?.uid}/position`);
-  const opponentRef = ref(realtimeDb, `games/${opponent?.uid}/position`);
+  const gameRef = ref(realtimeDb, `games/${gameId}`);
+  const playerRef = ref(
+    realtimeDb,
+    `games/${gameId}/player${isCreator ? "1" : "2"}`
+  ); // Jugador 1 o 2 según sea el creador
+  const opponentRef = ref(
+    realtimeDb,
+    `games/${gameId}/player${isCreator ? "2" : "1"}`
+  ); // Oponente
 
   // Referencia para notificar la finalización de la partida
-  const gameEndRef = ref(realtimeDb, `games/${user?.uid}/gameEnded`);
+  const gameEndRef = ref(realtimeDb, `games/${gameId}/status`);
 
   // Registrar la conexión del jugador
   useEffect(() => {
     if (user?.uid) {
       const playerConnectionRef = ref(
         realtimeDb,
-        `games/${user.uid}/connected`
+        `games/${gameId}/player${isCreator ? "1" : "2"}/connected`
       );
       set(playerConnectionRef, true); // Registrar que el jugador está conectado
 
       // Escuchar cambios en la posición del oponente
       const opponentPositionListener = onValue(opponentRef, (snapshot) => {
         if (snapshot.exists()) {
-          setOpponentPosition(snapshot.val());
+          setOpponentPosition(snapshot.val().position);
+        } else {
+          // Si el oponente abandona la partida, limpiar su posición
+          setOpponentPosition(null);
         }
       });
 
       // Escuchar notificaciones de finalización de partida
       const gameEndListener = onValue(gameEndRef, (snapshot) => {
-        if (snapshot.exists() && snapshot.val() === true) {
+        if (snapshot.exists() && snapshot.val() === "ended") {
           alert("El oponente ha abandonado la partida.");
           handleEndGame(); // Finalizar la partida para este jugador
         }
@@ -52,7 +62,7 @@ const Game = () => {
         gameEndListener(); // Detener el listener de finalización de partida
       };
     }
-  }, [user?.uid, opponentRef, gameEndRef]);
+  }, [gameId, user?.uid, opponentRef, gameEndRef, isCreator]);
 
   // Esperar a que el oponente se conecte
   useEffect(() => {
@@ -64,7 +74,7 @@ const Game = () => {
 
       const opponentConnectionRef = ref(
         realtimeDb,
-        `games/${opponent?.uid}/connected`
+        `games/${gameId}/player${isCreator ? "2" : "1"}/connected`
       );
       const opponentConnectionListener = onValue(
         opponentConnectionRef,
@@ -81,7 +91,7 @@ const Game = () => {
         opponentConnectionListener(); // Detener el listener del oponente
       };
     }
-  }, [opponentRef, opponent?.uid]);
+  }, [gameId, opponentRef, isCreator]);
 
   // Mover al jugador con las teclas A, W, S, D
   useEffect(() => {
@@ -109,14 +119,14 @@ const Game = () => {
 
       // Actualizar la posición en Realtime Database
       if (playerRef) {
-        set(playerRef, { x: newX, y: newY });
+        set(playerRef, { ...user, position: { x: newX, y: newY } });
         setPlayerPosition({ x: newX, y: newY });
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [playerPosition, playerRef]);
+  }, [playerPosition, playerRef, user]);
 
   // Dibujar el canvas
   useEffect(() => {
@@ -135,11 +145,13 @@ const Game = () => {
       ctx.arc(playerPosition.x, playerPosition.y, 10, 0, Math.PI * 2);
       ctx.fill();
 
-      // Dibujar el punto del oponente
-      ctx.fillStyle = "blue";
-      ctx.beginPath();
-      ctx.arc(opponentPosition.x, opponentPosition.y, 10, 0, Math.PI * 2);
-      ctx.fill();
+      // Dibujar el punto del oponente solo si opponentPosition está definido
+      if (opponentPosition) {
+        ctx.fillStyle = "blue";
+        ctx.beginPath();
+        ctx.arc(opponentPosition.x, opponentPosition.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       animationFrameId = requestAnimationFrame(draw);
     };
@@ -156,19 +168,11 @@ const Game = () => {
 
   // Finalizar la partida para ambos jugadores
   const handleEndGame = async () => {
-    // Notificar al oponente que la partida ha finalizado
-    const opponentGameEndRef = ref(
-      realtimeDb,
-      `games/${opponent.uid}/gameEnded`
-    );
-    await set(opponentGameEndRef, true); // Notificar al oponente
+    // Notificar que la partida ha finalizado
+    await set(gameEndRef, "ended");
 
-    // Eliminar la partida de la base de datos para ambos jugadores
-    const playerGameRef = ref(realtimeDb, `games/${user.uid}`);
-    const opponentGameRef = ref(realtimeDb, `games/${opponent.uid}`);
-
-    await remove(playerGameRef); // Eliminar datos del jugador
-    await remove(opponentGameRef); // Eliminar datos del oponente
+    // Eliminar la partida de la base de datos
+    await remove(gameRef);
 
     // Limpiar el estado de matchmaking para ambos jugadores
     const playerMatchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
@@ -178,6 +182,9 @@ const Game = () => {
     );
     await remove(playerMatchmakingRef);
     await remove(opponentMatchmakingRef);
+
+    // Limpiar el estado del oponente
+    setOpponentPosition(null);
 
     navigate("/lobby"); // Redirigir al lobby
   };

@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { getAuth, signOut } from "firebase/auth";
-import { ref, set, onValue, remove } from "firebase/database";
+import {
+  ref,
+  set,
+  onValue,
+  remove,
+  get,
+  runTransaction,
+} from "firebase/database";
 import { auth, realtimeDb } from "../firebase/firebase";
 import { useNavigate } from "react-router-dom";
 import "../css/Lobby.css";
@@ -78,38 +85,58 @@ const Lobby = ({ user, userData }) => {
       status: "accepted", // Cambiar estado a "accepted"
     });
 
-    // Esperar a que el oponente también acepte
-    const opponentRef = ref(realtimeDb, `matchmaking/${opponent.uid}`);
-    const acceptTimeout = setTimeout(() => {
-      alert("El oponente no aceptó la partida a tiempo.");
-      resetMatchmaking();
-    }, 10000); // 10 segundos de espera
+    // Generar un gameId consistente ordenando los uid
+    const gameId = [user.uid, opponent.uid].sort().join("_");
+    const gameRef = ref(realtimeDb, `games/${gameId}`);
 
-    const opponentListener = onValue(opponentRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data && data.status === "accepted") {
-        // Ambos han aceptado, redirigir a Game.jsx
-        clearTimeout(acceptTimeout); // Limpiar el timeout
-        navigate("/game", {
-          state: {
-            user: {
+    // Usar una transacción para crear la partida de manera atómica
+    try {
+      await runTransaction(gameRef, (currentData) => {
+        if (currentData === null) {
+          // Si la partida no existe, crearla
+          return {
+            player1: {
               uid: user.uid,
-              email: user.email,
+              nickname: userData.nickname,
+              elo: userData.elo,
+              position: { x: 100, y: 100 },
+              connected: true, // Registrar que el jugador está conectado
             },
-            opponent: {
+            player2: {
               uid: opponent.uid,
               nickname: opponent.nickname,
               elo: opponent.elo,
+              position: { x: 300, y: 100 },
+              connected: false, // El oponente aún no está conectado
             },
-          },
-        });
-      }
-    });
+            status: "in_progress", // Estado de la partida
+          };
+        } else {
+          // Si la partida ya existe, no hacer nada
+          return currentData;
+        }
+      });
 
-    // Limpiar el listener al desmontar el componente
-    return () => {
-      opponentListener(); // Detener el listener
-    };
+      console.log("Redirigiendo a la partida...");
+      navigate("/game", {
+        state: {
+          gameId, // Pasar el ID de la partida
+          user: {
+            uid: user.uid,
+            email: user.email,
+          },
+          opponent: {
+            uid: opponent.uid,
+            nickname: opponent.nickname,
+            elo: opponent.elo,
+          },
+          isCreator: user.uid < opponent.uid, // Indicar si este jugador es el creador de la partida
+        },
+      });
+    } catch (error) {
+      console.error("Error al crear la partida:", error);
+      alert("Hubo un error al crear la partida. Inténtalo de nuevo.");
+    }
   };
 
   // Rechazar partida
