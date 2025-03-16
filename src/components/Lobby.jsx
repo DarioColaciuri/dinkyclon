@@ -99,17 +99,27 @@ const Lobby = ({ user, userData }) => {
               uid: user.uid,
               nickname: userData.nickname,
               elo: userData.elo,
-              position: { x: 100, y: 100 },
+              characters: [
+                { position: { x: 100, y: 100 }, life: 100 }, // Personaje 1
+                { position: { x: 100, y: 200 }, life: 100 }, // Personaje 2
+                { position: { x: 100, y: 300 }, life: 100 }, // Personaje 3
+              ],
               connected: true, // Registrar que el jugador está conectado
             },
             player2: {
               uid: opponent.uid,
               nickname: opponent.nickname,
               elo: opponent.elo,
-              position: { x: 300, y: 100 },
+              characters: [
+                { position: { x: 700, y: 100 }, life: 100 }, // Personaje 1
+                { position: { x: 700, y: 200 }, life: 100 }, // Personaje 2
+                { position: { x: 700, y: 300 }, life: 100 }, // Personaje 3
+              ],
               connected: false, // El oponente aún no está conectado
             },
             status: "in_progress", // Estado de la partida
+            currentTurn: user.uid, // El creador de la partida empieza primero
+            currentCharacterIndex: 0, // Empieza con el primer personaje
           };
         } else {
           // Si la partida ya existe, no hacer nada
