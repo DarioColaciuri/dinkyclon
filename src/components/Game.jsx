@@ -13,6 +13,9 @@ const Game = () => {
   const [playerCharacters, setPlayerCharacters] = useState([]);
   const [opponentCharacters, setOpponentCharacters] = useState([]);
   const [waitingForOpponent, setWaitingForOpponent] = useState(true);
+  const [currentTurn, setCurrentTurn] = useState(null); // Turno actual (player1 o player2)
+  const [countdown, setCountdown] = useState(30); // Contador de 30 segundos
+  const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0); // Índice del personaje actual (0, 1, 2)
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -28,7 +31,58 @@ const Game = () => {
     realtimeDb,
     `games/${gameId}/player${isCreator ? "1" : "2"}/connected`
   );
+  const currentTurnRef = ref(realtimeDb, `games/${gameId}/currentTurn`);
+  const currentCharacterIndexRef = ref(
+    realtimeDb,
+    `games/${gameId}/currentCharacterIndex`
+  );
 
+  // Efecto para sincronizar el turno actual y el índice del personaje
+  useEffect(() => {
+    const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setCurrentTurn(snapshot.val());
+      }
+    });
+
+    const currentCharacterIndexListener = onValue(
+      currentCharacterIndexRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setCurrentCharacterIndex(snapshot.val());
+        }
+      }
+    );
+
+    return () => {
+      currentTurnListener();
+      currentCharacterIndexListener();
+    };
+  }, []);
+
+  // Efecto para manejar el contador de turnos
+  useEffect(() => {
+    if (currentTurn) {
+      const interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev === 0) {
+            // Cambiar de turno y reiniciar el contador
+            const nextTurn = currentTurn === user.uid ? opponent.uid : user.uid;
+            const nextCharacterIndex = (currentCharacterIndex + 1) % 3; // Ciclar entre 0, 1, 2
+            set(currentTurnRef, nextTurn);
+            set(currentCharacterIndexRef, nextCharacterIndex);
+            setCountdown(30);
+            return 30;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [currentTurn, currentCharacterIndex, user.uid, opponent.uid]);
+
+  // Efecto para sincronizar los personajes del jugador y el oponente
   useEffect(() => {
     if (user?.uid) {
       set(playerConnectionRef, true);
@@ -63,6 +117,7 @@ const Game = () => {
     }
   }, [gameId, user?.uid, isCreator]);
 
+  // Efecto para manejar la conexión del oponente
   useEffect(() => {
     if (opponentRef) {
       const timeout = setTimeout(() => {
@@ -91,13 +146,19 @@ const Game = () => {
     }
   }, [gameId, isCreator]);
 
+  // Efecto para manejar el movimiento de los personajes
   useEffect(() => {
     const handleKeyDown = async (e) => {
+      // Solo permitir movimiento si es el turno del jugador
+      if (currentTurn !== user.uid) return;
+
       const moveAmount = 10;
       const snapshot = await get(playerRef);
       const currentCharacters = snapshot.val()?.characters || [];
 
-      const newPlayerCharacters = currentCharacters.map((character) => {
+      const newPlayerCharacters = currentCharacters.map((character, index) => {
+        if (index !== currentCharacterIndex) return character; // Solo mover el personaje actual
+
         let newX = character.position.x;
         let newY = character.position.y;
 
@@ -126,8 +187,9 @@ const Game = () => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [playerRef, user]);
+  }, [playerRef, user, currentTurn, currentCharacterIndex]);
 
+  // Efecto para dibujar los personajes en el canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -137,14 +199,14 @@ const Game = () => {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      playerCharacters.forEach(({ position }) => {
-        ctx.fillStyle = "red";
+      playerCharacters.forEach(({ position }, index) => {
+        ctx.fillStyle = index === currentCharacterIndex ? "darkred" : "red"; // Resaltar el personaje actual
         ctx.beginPath();
         ctx.arc(position.x, position.y, 10, 0, Math.PI * 2);
         ctx.fill();
       });
-      opponentCharacters.forEach(({ position }) => {
-        ctx.fillStyle = "blue";
+      opponentCharacters.forEach(({ position }, index) => {
+        ctx.fillStyle = index === currentCharacterIndex ? "darkblue" : "blue"; // Resaltar el personaje actual
         ctx.beginPath();
         ctx.arc(position.x, position.y, 10, 0, Math.PI * 2);
         ctx.fill();
@@ -154,8 +216,9 @@ const Game = () => {
 
     draw();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [playerCharacters, opponentCharacters]);
+  }, [playerCharacters, opponentCharacters, currentCharacterIndex]);
 
+  // Función para terminar la partida
   const handleEndGame = async () => {
     await set(gameEndRef, "ended");
     await remove(gameRef);
@@ -181,6 +244,14 @@ const Game = () => {
       ) : (
         <>
           <h2>Partida en curso</h2>
+          <div className="turn-info">
+            <p>
+              Turno de:{" "}
+              {currentTurn === user.uid ? user.nickname : opponent.nickname} (
+              {countdown}s)
+            </p>
+            <p>Personaje actual: {currentCharacterIndex + 1}</p>
+          </div>
           <canvas
             ref={canvasRef}
             width={800}

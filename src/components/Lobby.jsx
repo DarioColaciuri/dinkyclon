@@ -13,56 +13,52 @@ import { useNavigate } from "react-router-dom";
 import "../css/Lobby.css";
 
 const Lobby = ({ user, userData }) => {
-  const [searching, setSearching] = useState(false); // Estado de búsqueda
-  const [matchFound, setMatchFound] = useState(false); // Estado de partida encontrada
-  const [opponent, setOpponent] = useState(null); // Información del oponente
-  const [timeoutId, setTimeoutId] = useState(null); // ID del timeout
-  const [showModal, setShowModal] = useState(false); // Controlar visibilidad del modal
-  const [countdown, setCountdown] = useState(10); // Cuenta regresiva de 10 segundos
+  const [searching, setSearching] = useState(false);
+  const [matchFound, setMatchFound] = useState(false);
+  const [opponent, setOpponent] = useState(null);
+  const [timeoutId, setTimeoutId] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [countdown, setCountdown] = useState(10);
+  const [searchCounter, setSearchCounter] = useState(0);
   const navigate = useNavigate();
 
-  // Redirigir si el usuario no está autenticado
   useEffect(() => {
     if (!user) {
-      navigate("/"); // Redirigir a la página de autenticación
+      navigate("/");
     }
   }, [user, navigate]);
 
-  // Cerrar sesión
   const handleLogout = async () => {
     await signOut(auth);
-    navigate("/"); // Redirigir a la página de autenticación
+    navigate("/");
   };
 
-  // Buscar partida
   const handleSearchGame = async () => {
     setSearching(true);
+    setSearchCounter(0);
 
-    // Registrar al jugador en la búsqueda de partida
     const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
     await set(matchmakingRef, {
       uid: user.uid,
       nickname: userData.nickname,
       elo: userData.elo,
-      status: "searching", // Estado inicial
+      status: "searching",
     });
 
-    // Escuchar cambios en el estado de emparejamiento
     const matchmakingListener = onValue(matchmakingRef, (snapshot) => {
       const data = snapshot.val();
       if (data && data.status === "found") {
-        // Partida encontrada
         setMatchFound(true);
-        setOpponent(data.opponent); // Guardar información del oponente
-        setShowModal(true); // Mostrar el modal
+        setOpponent(data.opponent);
+        setShowModal(true);
+        setSearchCounter(0); // Detener el contador de búsqueda
+        setCountdown(10); // Reiniciar cuenta regresiva
       } else if (data && data.status === "rejected") {
-        // El oponente rechazó la partida
         resetMatchmaking();
         alert("Partida rechazada.");
       }
     });
 
-    // Tiempo de espera de 10 segundos
     const id = setTimeout(() => {
       if (!matchFound) {
         resetMatchmaking();
@@ -71,66 +67,64 @@ const Lobby = ({ user, userData }) => {
     }, 10000);
     setTimeoutId(id);
 
-    // Limpiar el listener al desmontar el componente
     return () => {
-      matchmakingListener(); // Detener el listener
+      matchmakingListener();
     };
   };
 
-  // Aceptar partida
+  const handleCancelSearch = () => {
+    resetMatchmaking();
+    alert("Búsqueda de partida cancelada.");
+  };
+
   const handleAcceptMatch = async () => {
     const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
     await set(matchmakingRef, {
       ...opponent,
-      status: "accepted", // Cambiar estado a "accepted"
+      status: "accepted",
     });
 
-    // Generar un gameId consistente ordenando los uid
     const gameId = [user.uid, opponent.uid].sort().join("_");
     const gameRef = ref(realtimeDb, `games/${gameId}`);
 
-    // Usar una transacción para crear la partida de manera atómica
     try {
       await runTransaction(gameRef, (currentData) => {
         if (currentData === null) {
-          // Si la partida no existe, crearla
           return {
             player1: {
               uid: user.uid,
               nickname: userData.nickname,
               elo: userData.elo,
               characters: [
-                { position: { x: 100, y: 100 }, life: 100 }, // Personaje 1
-                { position: { x: 100, y: 200 }, life: 100 }, // Personaje 2
-                { position: { x: 100, y: 300 }, life: 100 }, // Personaje 3
+                { position: { x: 100, y: 100 }, life: 100 },
+                { position: { x: 100, y: 200 }, life: 100 },
+                { position: { x: 100, y: 300 }, life: 100 },
               ],
-              connected: true, // Registrar que el jugador está conectado
+              connected: true,
             },
             player2: {
               uid: opponent.uid,
               nickname: opponent.nickname,
               elo: opponent.elo,
               characters: [
-                { position: { x: 700, y: 100 }, life: 100 }, // Personaje 1
-                { position: { x: 700, y: 200 }, life: 100 }, // Personaje 2
-                { position: { x: 700, y: 300 }, life: 100 }, // Personaje 3
+                { position: { x: 700, y: 100 }, life: 100 },
+                { position: { x: 700, y: 200 }, life: 100 },
+                { position: { x: 700, y: 300 }, life: 100 },
               ],
-              connected: false, // El oponente aún no está conectado
+              connected: false,
             },
-            status: "in_progress", // Estado de la partida
-            currentTurn: user.uid, // El creador de la partida empieza primero
-            currentCharacterIndex: 0, // Empieza con el primer personaje
+            status: "in_progress",
+            currentTurn: user.uid,
+            currentCharacterIndex: 0,
           };
         } else {
-          // Si la partida ya existe, no hacer nada
           return currentData;
         }
       });
 
-      console.log("Redirigiendo a la partida...");
       navigate("/game", {
         state: {
-          gameId, // Pasar el ID de la partida
+          gameId,
           user: {
             uid: user.uid,
             email: user.email,
@@ -140,7 +134,7 @@ const Lobby = ({ user, userData }) => {
             nickname: opponent.nickname,
             elo: opponent.elo,
           },
-          isCreator: user.uid < opponent.uid, // Indicar si este jugador es el creador de la partida
+          isCreator: user.uid < opponent.uid,
         },
       });
     } catch (error) {
@@ -149,50 +143,60 @@ const Lobby = ({ user, userData }) => {
     }
   };
 
-  // Rechazar partida
   const handleRejectMatch = async () => {
     const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
     await set(matchmakingRef, {
       ...opponent,
-      status: "rejected", // Cambiar estado a "rejected"
+      status: "rejected",
     });
 
     resetMatchmaking();
-    setShowModal(false); // Ocultar el modal
+    setShowModal(false);
   };
 
-  // Limpiar estados y eliminar de la búsqueda
   const resetMatchmaking = () => {
     setSearching(false);
     setMatchFound(false);
     setOpponent(null);
+    setSearchCounter(0);
+    setCountdown(10);
     const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    remove(matchmakingRef); // Eliminar de la búsqueda
+    remove(matchmakingRef);
   };
 
-  // Limpiar el timeout al desmontar el componente
   useEffect(() => {
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-    };
+    if (timeoutId) clearTimeout(timeoutId);
   }, [timeoutId]);
 
-  // Cuenta regresiva en la pantalla de espera
   useEffect(() => {
-    if (searching && matchFound && showModal) {
+    if (searching && !matchFound) {
       const interval = setInterval(() => {
-        setCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+        setSearchCounter((prev) => prev + 1);
       }, 1000);
-
-      return () => clearInterval(interval); // Limpiar el intervalo al desmontar
+      return () => clearInterval(interval);
     }
-  }, [searching, matchFound, showModal]);
+  }, [searching, matchFound]);
 
-  // Emparejar jugadores
+  useEffect(() => {
+    if (matchFound && showModal) {
+      setCountdown(10);
+      const interval = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev === 1) {
+            alert("El tiempo para aceptar la partida ha expirado.");
+            resetMatchmaking();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [matchFound, showModal]);
+
   useEffect(() => {
     const matchmakingRef = ref(realtimeDb, "matchmaking");
 
-    // Escuchar cambios en la lista de búsqueda
     const matchmakingListener = onValue(matchmakingRef, (snapshot) => {
       const matchmakingData = snapshot.val();
       if (matchmakingData) {
@@ -202,7 +206,6 @@ const Lobby = ({ user, userData }) => {
         );
 
         if (searchingPlayers.length >= 2) {
-          // Emparejar a los dos primeros jugadores
           const [player1, player2] = searchingPlayers;
 
           const player1Ref = ref(realtimeDb, `matchmaking/${player1.uid}`);
@@ -210,26 +213,24 @@ const Lobby = ({ user, userData }) => {
 
           set(player1Ref, {
             ...player1,
-            status: "found", // Cambiar estado a "found"
-            opponent: player2, // Guardar información del oponente
+            status: "found",
+            opponent: player2,
           });
 
           set(player2Ref, {
             ...player2,
-            status: "found", // Cambiar estado a "found"
-            opponent: player1, // Guardar información del oponente
+            status: "found",
+            opponent: player1,
           });
         }
       }
     });
 
-    // Limpiar el listener al desmontar el componente
     return () => {
-      matchmakingListener(); // Detener el listener
+      matchmakingListener();
     };
   }, []);
 
-  // Si el usuario no está autenticado, no renderizar el componente
   if (!user) {
     return null;
   }
@@ -243,18 +244,22 @@ const Lobby = ({ user, userData }) => {
         <button onClick={handleSearchGame}>Buscar partida</button>
       )}
 
-      {searching && !matchFound && <p>Buscando partida...</p>}
+      {searching && !matchFound && (
+        <>
+          <p>Buscando partida... {searchCounter}s</p>
+          <button onClick={handleCancelSearch}>Cancelar búsqueda</button>
+        </>
+      )}
 
-      {/* Modal para "Oponente encontrado" */}
       {showModal && opponent && (
         <div className="modal-overlay">
           <div className="modal">
-            <p>Oponente encontrado:</p>
-            <p>Nickname: {opponent.nickname}</p>
-            <p>ELO: {opponent.elo}</p>
+            <p>
+              Oponente encontrado: {opponent.nickname} ({opponent.elo} ELO)
+            </p>
             <p>Tiempo restante: {countdown} segundos</p>
-            <button onClick={handleAcceptMatch}>Aceptar partida</button>
-            <button onClick={handleRejectMatch}>Rechazar partida</button>
+            <button onClick={handleAcceptMatch}>Aceptar</button>
+            <button onClick={handleRejectMatch}>Rechazar</button>
           </div>
         </div>
       )}
