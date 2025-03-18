@@ -3,6 +3,7 @@ import { ref, onValue, set, remove, get } from "firebase/database";
 import { realtimeDb } from "../firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
 import "../css/Game.css";
+import Level1 from "./levels/Level1"; // Importar el componente del mapa
 
 const Game = () => {
   const canvasRef = useRef(null);
@@ -13,9 +14,9 @@ const Game = () => {
   const [playerCharacters, setPlayerCharacters] = useState([]);
   const [opponentCharacters, setOpponentCharacters] = useState([]);
   const [waitingForOpponent, setWaitingForOpponent] = useState(true);
-  const [currentTurn, setCurrentTurn] = useState(null); // Turno actual (player1 o player2)
-  const [countdown, setCountdown] = useState(30); // Contador de 30 segundos
-  const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0); // Índice del personaje actual (0, 1, 2)
+  const [currentTurn, setCurrentTurn] = useState(null);
+  const [countdown, setCountdown] = useState(30);
+  const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0);
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -36,7 +37,10 @@ const Game = () => {
     realtimeDb,
     `games/${gameId}/currentCharacterIndex`
   );
-  const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`); // Referencia al temporizador
+  const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
+
+  // Obtener el mapa del nivel 1
+  const map = Level1();
 
   // Efecto para sincronizar el turno actual, el índice del personaje y el contador
   useEffect(() => {
@@ -76,14 +80,13 @@ const Game = () => {
         const currentCountdown = snapshot.val();
 
         if (currentCountdown === 0) {
-          // Cambiar de turno y reiniciar el contador
           const nextTurn = currentTurn === user.uid ? opponent.uid : user.uid;
-          const nextCharacterIndex = (currentCharacterIndex + 1) % 3; // Ciclar entre 0, 1, 2
+          const nextCharacterIndex = (currentCharacterIndex + 1) % 3;
           await set(currentTurnRef, nextTurn);
           await set(currentCharacterIndexRef, nextCharacterIndex);
-          await set(countdownRef, 30); // Reiniciar el temporizador a 30 segundos
+          await set(countdownRef, 30);
         } else {
-          await set(countdownRef, currentCountdown - 1); // Decrementar el temporizador
+          await set(countdownRef, currentCountdown - 1);
         }
       }, 1000);
 
@@ -164,7 +167,6 @@ const Game = () => {
   // Efecto para manejar el movimiento de los personajes
   useEffect(() => {
     const handleKeyDown = async (e) => {
-      // Solo permitir movimiento si es el turno del jugador
       if (currentTurn !== user.uid) return;
 
       const moveAmount = 10;
@@ -172,7 +174,7 @@ const Game = () => {
       const currentCharacters = snapshot.val()?.characters || [];
 
       const newPlayerCharacters = currentCharacters.map((character, index) => {
-        if (index !== currentCharacterIndex) return character; // Solo mover el personaje actual
+        if (index !== currentCharacterIndex) return character;
 
         let newX = character.position.x;
         let newY = character.position.y;
@@ -204,7 +206,7 @@ const Game = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [playerRef, user, currentTurn, currentCharacterIndex]);
 
-  // Efecto para dibujar los personajes en el canvas
+  // Efecto para dibujar el mapa y los personajes en el canvas
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -214,24 +216,35 @@ const Game = () => {
 
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Dibujar el mapa
+      map.forEach((tile, index) => {
+        if (tile === 1) {
+          const col = index % 80; // Columna actual
+          const row = Math.floor(index / 80); // Fila actual
+          ctx.fillStyle = "yellow"; // Color de los tiles
+          ctx.fillRect(col * 10, row * 10, 10, 10); // Dibujar tile de 10x10
+        }
+      });
+
+      // Dibujar los personajes del jugador
       playerCharacters.forEach(({ position }, index) => {
-        ctx.fillStyle = index === currentCharacterIndex ? "darkred" : "red"; // Resaltar el personaje actual
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, 10, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = index === currentCharacterIndex ? "darkred" : "red";
+        ctx.fillRect(position.x, position.y, 10, 10); // Dibujar personaje de 10x10
       });
+
+      // Dibujar los personajes del oponente
       opponentCharacters.forEach(({ position }, index) => {
-        ctx.fillStyle = index === currentCharacterIndex ? "darkblue" : "blue"; // Resaltar el personaje actual
-        ctx.beginPath();
-        ctx.arc(position.x, position.y, 10, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillStyle = index === currentCharacterIndex ? "darkblue" : "blue";
+        ctx.fillRect(position.x, position.y, 10, 10); // Dibujar personaje de 10x10
       });
+
       animationFrameId = requestAnimationFrame(draw);
     };
 
     draw();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [playerCharacters, opponentCharacters, currentCharacterIndex]);
+  }, [playerCharacters, opponentCharacters, currentCharacterIndex, map]);
 
   // Función para terminar la partida
   const handleEndGame = async () => {
