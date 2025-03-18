@@ -3,7 +3,7 @@ import { ref, onValue, set, remove, get } from "firebase/database";
 import { realtimeDb } from "../firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
 import "../css/Game.css";
-import Level1 from "./levels/Level1"; // Importar el componente del mapa
+import Level2 from "./levels/Level2"; // Importar el componente del mapa
 
 const Game = () => {
   const canvasRef = useRef(null);
@@ -40,7 +40,7 @@ const Game = () => {
   const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
 
   // Obtener el mapa del nivel 1
-  const map = Level1();
+  const map = Level2();
 
   // Función para verificar colisiones
   const checkCollision = (x, y) => {
