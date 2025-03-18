@@ -42,6 +42,17 @@ const Game = () => {
   // Obtener el mapa del nivel 1
   const map = Level1();
 
+  // Función para verificar colisiones
+  const checkCollision = (x, y) => {
+    // Convertir coordenadas a índices del mapa
+    const col = Math.floor(x / 10);
+    const row = Math.floor(y / 10);
+    const index = row * 80 + col; // Calcular el índice en el array unidimensional
+
+    // Verificar si el tile es 1 (colisión)
+    return map[index] === 1;
+  };
+
   // Efecto para sincronizar el turno actual, el índice del personaje y el contador
   useEffect(() => {
     const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
@@ -196,7 +207,12 @@ const Game = () => {
             break;
         }
 
-        return { ...character, position: { x: newX, y: newY } };
+        // Verificar colisión antes de mover al personaje
+        if (!checkCollision(newX, newY)) {
+          return { ...character, position: { x: newX, y: newY } };
+        } else {
+          return character; // No mover si hay colisión
+        }
       });
 
       await set(playerRef, { ...user, characters: newPlayerCharacters });
