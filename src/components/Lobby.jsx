@@ -116,6 +116,7 @@ const Lobby = ({ user, userData }) => {
             status: "in_progress",
             currentTurn: user.uid,
             currentCharacterIndex: 0,
+            countdown: 30, // Inicializar el temporizador en 30 segundos
           };
         } else {
           return currentData;

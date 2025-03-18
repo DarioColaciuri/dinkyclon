@@ -36,8 +36,9 @@ const Game = () => {
     realtimeDb,
     `games/${gameId}/currentCharacterIndex`
   );
+  const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`); // Referencia al temporizador
 
-  // Efecto para sincronizar el turno actual y el índice del personaje
+  // Efecto para sincronizar el turno actual, el índice del personaje y el contador
   useEffect(() => {
     const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -54,33 +55,47 @@ const Game = () => {
       }
     );
 
+    const countdownListener = onValue(countdownRef, (snapshot) => {
+      if (snapshot.exists()) {
+        setCountdown(snapshot.val());
+      }
+    });
+
     return () => {
       currentTurnListener();
       currentCharacterIndexListener();
+      countdownListener();
     };
   }, []);
 
   // Efecto para manejar el contador de turnos
   useEffect(() => {
-    if (currentTurn) {
-      const interval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev === 0) {
-            // Cambiar de turno y reiniciar el contador
-            const nextTurn = currentTurn === user.uid ? opponent.uid : user.uid;
-            const nextCharacterIndex = (currentCharacterIndex + 1) % 3; // Ciclar entre 0, 1, 2
-            set(currentTurnRef, nextTurn);
-            set(currentCharacterIndexRef, nextCharacterIndex);
-            setCountdown(30);
-            return 30;
-          }
-          return prev - 1;
-        });
+    if (currentTurn && !waitingForOpponent) {
+      const interval = setInterval(async () => {
+        const snapshot = await get(countdownRef);
+        const currentCountdown = snapshot.val();
+
+        if (currentCountdown === 0) {
+          // Cambiar de turno y reiniciar el contador
+          const nextTurn = currentTurn === user.uid ? opponent.uid : user.uid;
+          const nextCharacterIndex = (currentCharacterIndex + 1) % 3; // Ciclar entre 0, 1, 2
+          await set(currentTurnRef, nextTurn);
+          await set(currentCharacterIndexRef, nextCharacterIndex);
+          await set(countdownRef, 30); // Reiniciar el temporizador a 30 segundos
+        } else {
+          await set(countdownRef, currentCountdown - 1); // Decrementar el temporizador
+        }
       }, 1000);
 
       return () => clearInterval(interval);
     }
-  }, [currentTurn, currentCharacterIndex, user.uid, opponent.uid]);
+  }, [
+    currentTurn,
+    currentCharacterIndex,
+    user.uid,
+    opponent.uid,
+    waitingForOpponent,
+  ]);
 
   // Efecto para sincronizar los personajes del jugador y el oponente
   useEffect(() => {
