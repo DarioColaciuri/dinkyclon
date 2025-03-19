@@ -17,6 +17,7 @@ const Game = () => {
   const [currentTurn, setCurrentTurn] = useState(null);
   const [countdown, setCountdown] = useState(30);
   const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0);
+  const [backgroundImage, setBackgroundImage] = useState(null); // Estado para la imagen de fondo
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -39,8 +40,26 @@ const Game = () => {
   );
   const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
 
-  // Obtener el mapa del nivel 1
+  // Obtener el mapa del nivel 2
   const map = Level2();
+
+  // Cargar la imagen de fondo según el nivel
+  useEffect(() => {
+    const level = 2; // Cambia esto según el nivel actual
+    const image = new Image();
+    image.src = `/back${level}.webp`; // Ruta a la imagen en la carpeta public
+
+    image.onload = () => {
+      setBackgroundImage(image); // Guardar la imagen cargada en el estado
+    };
+
+    image.onerror = () => {
+      console.warn(
+        `No se pudo cargar la imagen de fondo para el nivel ${level}.`
+      );
+      setBackgroundImage(null); // No hacer nada si la imagen no se encuentra
+    };
+  }, []);
 
   // Función para verificar colisiones
   const checkCollision = (x, y) => {
@@ -233,12 +252,17 @@ const Game = () => {
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // Dibujar la imagen de fondo si está cargada
+      if (backgroundImage) {
+        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+      }
+
       // Dibujar el mapa
       map.forEach((tile, index) => {
         if (tile === 1) {
           const col = index % 80; // Columna actual
           const row = Math.floor(index / 80); // Fila actual
-          ctx.fillStyle = "yellow"; // Color de los tiles
+          ctx.fillStyle = "rgba(255, 255, 0, 0.267)"; // Color de los tiles
           ctx.fillRect(col * 10, row * 10, 10, 10); // Dibujar tile de 10x10
         }
       });
@@ -260,7 +284,13 @@ const Game = () => {
 
     draw();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [playerCharacters, opponentCharacters, currentCharacterIndex, map]);
+  }, [
+    playerCharacters,
+    opponentCharacters,
+    currentCharacterIndex,
+    map,
+    backgroundImage,
+  ]);
 
   // Función para terminar la partida
   const handleEndGame = async () => {
