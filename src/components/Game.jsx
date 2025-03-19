@@ -18,6 +18,18 @@ const Game = () => {
   const [countdown, setCountdown] = useState(30);
   const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0);
   const [backgroundImage, setBackgroundImage] = useState(null); // Estado para la imagen de fondo
+  const [playerImage, setPlayerImage] = useState(null);
+  const [opponentImage, setOpponentImage] = useState(null);
+
+  useEffect(() => {
+    const playerImg = new Image();
+    playerImg.src = isCreator ? "/char1.png" : "/char2.png"; // Imagen del jugador
+    playerImg.onload = () => setPlayerImage(playerImg);
+
+    const opponentImg = new Image();
+    opponentImg.src = isCreator ? "/char2.png" : "/char1.png"; // Imagen del oponente
+    opponentImg.onload = () => setOpponentImage(opponentImg);
+  }, [isCreator]);
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -63,13 +75,22 @@ const Game = () => {
 
   // Función para verificar colisiones
   const checkCollision = (x, y) => {
-    // Convertir coordenadas a índices del mapa
-    const col = Math.floor(x / 10);
-    const row = Math.floor(y / 10);
-    const index = row * 80 + col; // Calcular el índice en el array unidimensional
+    const width = 30; // Ancho del personaje
+    const height = 40; // Alto del personaje
+    const tileSize = 10; // Tamaño de cada tile
 
-    // Verificar si el tile es 1 (colisión)
-    return map[index] === 1;
+    for (let dx = 0; dx < width; dx += tileSize) {
+      for (let dy = 0; dy < height; dy += tileSize) {
+        const col = Math.floor((x + dx) / tileSize);
+        const row = Math.floor((y + dy) / tileSize);
+        const index = row * 80 + col; // Suponiendo un mapa de 80 columnas
+
+        if (map[index] === 1) {
+          return true; // Si cualquier punto colisiona, retorna true
+        }
+      }
+    }
+    return false; // Si ningún punto colisiona, retorna false
   };
 
   // Efecto para sincronizar el turno actual, el índice del personaje y el contador
@@ -252,7 +273,7 @@ const Game = () => {
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // Dibujar la imagen de fondo si está cargada
+      // Dibujar la imagen de fondo
       if (backgroundImage) {
         ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
       }
@@ -260,23 +281,25 @@ const Game = () => {
       // Dibujar el mapa
       map.forEach((tile, index) => {
         if (tile === 1) {
-          const col = index % 80; // Columna actual
-          const row = Math.floor(index / 80); // Fila actual
-          ctx.fillStyle = "rgba(255, 255, 0, 0.267)"; // Color de los tiles
-          ctx.fillRect(col * 10, row * 10, 10, 10); // Dibujar tile de 10x10
+          const col = index % 80;
+          const row = Math.floor(index / 80);
+          ctx.fillStyle = "rgba(255, 255, 0, 0.267)";
+          ctx.fillRect(col * 10, row * 10, 10, 10);
         }
       });
 
-      // Dibujar los personajes del jugador
-      playerCharacters.forEach(({ position }, index) => {
-        ctx.fillStyle = index === currentCharacterIndex ? "darkred" : "red";
-        ctx.fillRect(position.x, position.y, 10, 10); // Dibujar personaje de 10x10
+      // Dibujar los personajes del jugador con imagen
+      playerCharacters.forEach(({ position }) => {
+        if (playerImage) {
+          ctx.drawImage(playerImage, position.x, position.y, 30, 40);
+        }
       });
 
-      // Dibujar los personajes del oponente
-      opponentCharacters.forEach(({ position }, index) => {
-        ctx.fillStyle = index === currentCharacterIndex ? "darkblue" : "blue";
-        ctx.fillRect(position.x, position.y, 10, 10); // Dibujar personaje de 10x10
+      // Dibujar los personajes del oponente con imagen
+      opponentCharacters.forEach(({ position }) => {
+        if (opponentImage) {
+          ctx.drawImage(opponentImage, position.x, position.y, 30, 40);
+        }
       });
 
       animationFrameId = requestAnimationFrame(draw);
