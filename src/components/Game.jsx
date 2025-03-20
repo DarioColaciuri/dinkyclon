@@ -3,7 +3,11 @@ import { ref, onValue, set, remove, get } from "firebase/database";
 import { realtimeDb } from "../firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
 import "../css/Game.css";
-import Level2 from "./levels/Level2"; // Importar el componente del mapa
+import Level2 from "./levels/Level2";
+import GameCanvas from "./GameCanvas";
+import GameInfo from "./GameInfo";
+import GameControls from "./GameControls";
+import GameEnd from "./GameEnd";
 
 const Game = () => {
   const canvasRef = useRef(null);
@@ -17,19 +21,9 @@ const Game = () => {
   const [currentTurn, setCurrentTurn] = useState(null);
   const [countdown, setCountdown] = useState(30);
   const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0);
-  const [backgroundImage, setBackgroundImage] = useState(null); // Estado para la imagen de fondo
+  const [backgroundImage, setBackgroundImage] = useState(null);
   const [playerImage, setPlayerImage] = useState(null);
   const [opponentImage, setOpponentImage] = useState(null);
-
-  useEffect(() => {
-    const playerImg = new Image();
-    playerImg.src = isCreator ? "/char1.png" : "/char2.png"; // Imagen del jugador
-    playerImg.onload = () => setPlayerImage(playerImg);
-
-    const opponentImg = new Image();
-    opponentImg.src = isCreator ? "/char2.png" : "/char1.png"; // Imagen del oponente
-    opponentImg.onload = () => setOpponentImage(opponentImg);
-  }, [isCreator]);
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -52,68 +46,46 @@ const Game = () => {
   );
   const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
 
-  // Obtener el mapa del nivel 2
   const map = Level2();
 
-  // Cargar la imagen de fondo según el nivel
   useEffect(() => {
-    const level = 2; // Cambia esto según el nivel actual
+    const playerImg = new Image();
+    playerImg.src = isCreator ? "/char1.png" : "/char2.png";
+    playerImg.onload = () => setPlayerImage(playerImg);
+
+    const opponentImg = new Image();
+    opponentImg.src = isCreator ? "/char2.png" : "/char1.png";
+    opponentImg.onload = () => setOpponentImage(opponentImg);
+  }, [isCreator]);
+
+  useEffect(() => {
+    const level = 2;
     const image = new Image();
-    image.src = `/back${level}.webp`; // Ruta a la imagen en la carpeta public
+    image.src = `/back${level}.webp`;
 
-    image.onload = () => {
-      setBackgroundImage(image); // Guardar la imagen cargada en el estado
-    };
-
+    image.onload = () => setBackgroundImage(image);
     image.onerror = () => {
       console.warn(
         `No se pudo cargar la imagen de fondo para el nivel ${level}.`
       );
-      setBackgroundImage(null); // No hacer nada si la imagen no se encuentra
+      setBackgroundImage(null);
     };
   }, []);
 
-  // Función para verificar colisiones
-  const checkCollision = (x, y) => {
-    const width = 30; // Ancho del personaje
-    const height = 40; // Alto del personaje
-    const tileSize = 10; // Tamaño de cada tile
-
-    for (let dx = 0; dx < width; dx += tileSize) {
-      for (let dy = 0; dy < height; dy += tileSize) {
-        const col = Math.floor((x + dx) / tileSize);
-        const row = Math.floor((y + dy) / tileSize);
-        const index = row * 80 + col; // Suponiendo un mapa de 80 columnas
-
-        if (map[index] === 1) {
-          return true; // Si cualquier punto colisiona, retorna true
-        }
-      }
-    }
-    return false; // Si ningún punto colisiona, retorna false
-  };
-
-  // Efecto para sincronizar el turno actual, el índice del personaje y el contador
   useEffect(() => {
     const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setCurrentTurn(snapshot.val());
-      }
+      if (snapshot.exists()) setCurrentTurn(snapshot.val());
     });
 
     const currentCharacterIndexListener = onValue(
       currentCharacterIndexRef,
       (snapshot) => {
-        if (snapshot.exists()) {
-          setCurrentCharacterIndex(snapshot.val());
-        }
+        if (snapshot.exists()) setCurrentCharacterIndex(snapshot.val());
       }
     );
 
     const countdownListener = onValue(countdownRef, (snapshot) => {
-      if (snapshot.exists()) {
-        setCountdown(snapshot.val());
-      }
+      if (snapshot.exists()) setCountdown(snapshot.val());
     });
 
     return () => {
@@ -123,7 +95,6 @@ const Game = () => {
     };
   }, []);
 
-  // Efecto para manejar el contador de turnos
   useEffect(() => {
     if (currentTurn && !waitingForOpponent) {
       const interval = setInterval(async () => {
@@ -151,23 +122,19 @@ const Game = () => {
     waitingForOpponent,
   ]);
 
-  // Efecto para sincronizar los personajes del jugador y el oponente
   useEffect(() => {
     if (user?.uid) {
       set(playerConnectionRef, true);
 
       const playerCharactersListener = onValue(playerRef, (snapshot) => {
-        if (snapshot.exists()) {
+        if (snapshot.exists())
           setPlayerCharacters(snapshot.val().characters || []);
-        }
       });
 
       const opponentCharactersListener = onValue(opponentRef, (snapshot) => {
-        if (snapshot.exists()) {
+        if (snapshot.exists())
           setOpponentCharacters(snapshot.val().characters || []);
-        } else {
-          setOpponentCharacters([]);
-        }
+        else setOpponentCharacters([]);
       });
 
       const gameEndListener = onValue(gameEndRef, (snapshot) => {
@@ -186,7 +153,6 @@ const Game = () => {
     }
   }, [gameId, user?.uid, isCreator]);
 
-  // Efecto para manejar la conexión del oponente
   useEffect(() => {
     if (opponentRef) {
       const timeout = setTimeout(() => {
@@ -215,107 +181,6 @@ const Game = () => {
     }
   }, [gameId, isCreator]);
 
-  // Efecto para manejar el movimiento de los personajes
-  useEffect(() => {
-    const handleKeyDown = async (e) => {
-      if (currentTurn !== user.uid) return;
-
-      const moveAmount = 10;
-      const snapshot = await get(playerRef);
-      const currentCharacters = snapshot.val()?.characters || [];
-
-      const newPlayerCharacters = currentCharacters.map((character, index) => {
-        if (index !== currentCharacterIndex) return character;
-
-        let newX = character.position.x;
-        let newY = character.position.y;
-
-        switch (e.key.toLowerCase()) {
-          case "a":
-            newX -= moveAmount;
-            break;
-          case "d":
-            newX += moveAmount;
-            break;
-          case "w":
-            newY -= moveAmount;
-            break;
-          case "s":
-            newY += moveAmount;
-            break;
-          default:
-            break;
-        }
-
-        // Verificar colisión antes de mover al personaje
-        if (!checkCollision(newX, newY)) {
-          return { ...character, position: { x: newX, y: newY } };
-        } else {
-          return character; // No mover si hay colisión
-        }
-      });
-
-      await set(playerRef, { ...user, characters: newPlayerCharacters });
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [playerRef, user, currentTurn, currentCharacterIndex]);
-
-  // Efecto para dibujar el mapa y los personajes en el canvas
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    let animationFrameId;
-
-    const draw = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Dibujar la imagen de fondo
-      if (backgroundImage) {
-        ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
-      }
-
-      // Dibujar el mapa
-      map.forEach((tile, index) => {
-        if (tile === 1) {
-          const col = index % 80;
-          const row = Math.floor(index / 80);
-          ctx.fillStyle = "rgba(255, 255, 0, 0.267)";
-          ctx.fillRect(col * 10, row * 10, 10, 10);
-        }
-      });
-
-      // Dibujar los personajes del jugador con imagen
-      playerCharacters.forEach(({ position }) => {
-        if (playerImage) {
-          ctx.drawImage(playerImage, position.x, position.y, 30, 40);
-        }
-      });
-
-      // Dibujar los personajes del oponente con imagen
-      opponentCharacters.forEach(({ position }) => {
-        if (opponentImage) {
-          ctx.drawImage(opponentImage, position.x, position.y, 30, 40);
-        }
-      });
-
-      animationFrameId = requestAnimationFrame(draw);
-    };
-
-    draw();
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [
-    playerCharacters,
-    opponentCharacters,
-    currentCharacterIndex,
-    map,
-    backgroundImage,
-  ]);
-
-  // Función para terminar la partida
   const handleEndGame = async () => {
     await set(gameEndRef, "ended");
     await remove(gameRef);
@@ -340,24 +205,30 @@ const Game = () => {
         <p>Esperando al oponente...</p>
       ) : (
         <>
-          <h2>Partida en curso</h2>
-          <div className="turn-info">
-            <p>
-              Turno de:{" "}
-              {currentTurn === user.uid ? user.nickname : opponent.nickname} (
-              {countdown}s)
-            </p>
-            <p>Personaje actual: {currentCharacterIndex + 1}</p>
-          </div>
-          <canvas
-            ref={canvasRef}
-            width={800}
-            height={600}
-            className="game-canvas"
+          <GameInfo
+            currentTurn={currentTurn}
+            user={user}
+            opponent={opponent}
+            countdown={countdown}
+            currentCharacterIndex={currentCharacterIndex}
           />
-          <button onClick={handleEndGame} className="back-button">
-            Volver al lobby
-          </button>
+          <GameCanvas
+            canvasRef={canvasRef}
+            backgroundImage={backgroundImage}
+            map={map}
+            playerCharacters={playerCharacters}
+            opponentCharacters={opponentCharacters}
+            playerImage={playerImage}
+            opponentImage={opponentImage}
+          />
+          <GameControls
+            currentTurn={currentTurn}
+            user={user}
+            playerRef={playerRef}
+            currentCharacterIndex={currentCharacterIndex}
+            map={map}
+          />
+          <GameEnd handleEndGame={handleEndGame} />
         </>
       )}
     </div>
