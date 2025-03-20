@@ -48,6 +48,7 @@ const Game = () => {
 
   const map = Level2();
 
+  // Cargar imágenes
   useEffect(() => {
     const playerImg = new Image();
     playerImg.src = isCreator ? "/char1.png" : "/char2.png";
@@ -58,6 +59,7 @@ const Game = () => {
     opponentImg.onload = () => setOpponentImage(opponentImg);
   }, [isCreator]);
 
+  // Cargar fondo
   useEffect(() => {
     const level = 2;
     const image = new Image();
@@ -65,13 +67,11 @@ const Game = () => {
 
     image.onload = () => setBackgroundImage(image);
     image.onerror = () => {
-      console.warn(
-        `No se pudo cargar la imagen de fondo para el nivel ${level}.`
-      );
       setBackgroundImage(null);
     };
   }, []);
 
+  // Escuchar cambios en Firebase
   useEffect(() => {
     const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
       if (snapshot.exists()) setCurrentTurn(snapshot.val());
@@ -95,6 +95,7 @@ const Game = () => {
     };
   }, []);
 
+  // Temporizador del turno
   useEffect(() => {
     if (currentTurn && !waitingForOpponent) {
       const interval = setInterval(async () => {
@@ -122,6 +123,7 @@ const Game = () => {
     waitingForOpponent,
   ]);
 
+  // Escuchar cambios en los personajes y conexión del oponente
   useEffect(() => {
     if (user?.uid) {
       set(playerConnectionRef, true);
@@ -140,7 +142,7 @@ const Game = () => {
       const gameEndListener = onValue(gameEndRef, (snapshot) => {
         if (snapshot.exists() && snapshot.val() === "ended") {
           alert("El oponente ha abandonado la partida.");
-          handleEndGame();
+          navigate("/lobby"); // Solo navegar al lobby, no ejecutar handleEndGame
         }
       });
 
@@ -153,6 +155,7 @@ const Game = () => {
     }
   }, [gameId, user?.uid, isCreator]);
 
+  // Esperar al oponente
   useEffect(() => {
     if (opponentRef) {
       const timeout = setTimeout(() => {
@@ -181,22 +184,40 @@ const Game = () => {
     }
   }, [gameId, isCreator]);
 
+  // Finalizar partida
   const handleEndGame = async () => {
-    await set(gameEndRef, "ended");
-    await remove(gameRef);
+    try {
+      // Verificar si la partida ya ha sido eliminada
+      const gameSnapshot = await get(gameRef);
+      if (!gameSnapshot.exists()) {
+        navigate("/lobby");
+        return;
+      }
 
-    const playerMatchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    const opponentMatchmakingRef = ref(
-      realtimeDb,
-      `matchmaking/${opponent?.uid}`
-    );
-    await remove(playerMatchmakingRef);
-    if (opponent?.uid) await remove(opponentMatchmakingRef);
+      // 1. Notificar al otro jugador que la partida ha terminado
+      await set(gameEndRef, "ended");
 
-    await remove(playerConnectionRef);
-    setOpponentCharacters([]);
+      // 2. Eliminar la partida completa
+      await remove(gameRef);
 
-    navigate("/lobby");
+      // 3. Eliminar las referencias de matchmaking de ambos jugadores
+      const playerMatchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
+      const opponentMatchmakingRef = ref(
+        realtimeDb,
+        `matchmaking/${opponent?.uid}`
+      );
+
+      await remove(playerMatchmakingRef);
+
+      if (opponent?.uid) {
+        await remove(opponentMatchmakingRef);
+      }
+
+      // 4. Navegar de vuelta al lobby
+      navigate("/lobby");
+    } catch (error) {
+      alert("Hubo un error al finalizar la partida. Inténtalo de nuevo.");
+    }
   };
 
   return (
