@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { get, set } from "firebase/database";
 
 const GameControls = ({
@@ -11,6 +11,13 @@ const GameControls = ({
   const gravity = 0.5; // Fuerza de gravedad
   const jumpStrength = -10; // Fuerza de salto inicial
   const tileSize = 10; // Tamaño de los tiles del mapa
+  const moveAmount = 5; // Cantidad de movimiento horizontal
+
+  const [keys, setKeys] = useState({
+    a: { pressed: false },
+    d: { pressed: false },
+    space: { pressed: false },
+  });
 
   // Verificar colisiones
   const checkCollision = (x, y) => {
@@ -61,14 +68,46 @@ const GameControls = ({
 
   // Mover personaje horizontalmente y saltar
   const handleKeyDown = async (e) => {
-    if (currentTurn !== user.uid) return;
-
-    // Evitar el scroll de la página al presionar la barra espaciadora
+    // Evitar el scroll de la página al presionar la barra espaciadora (globalmente)
     if (e.key === " ") {
       e.preventDefault();
     }
 
-    const moveAmount = 10;
+    if (currentTurn !== user.uid) return;
+
+    switch (e.key.toLowerCase()) {
+      case "a":
+        setKeys((prev) => ({ ...prev, a: { pressed: true } }));
+        break;
+      case "d":
+        setKeys((prev) => ({ ...prev, d: { pressed: true } }));
+        break;
+      case " ":
+        setKeys((prev) => ({ ...prev, space: { pressed: true } }));
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleKeyUp = async (e) => {
+    switch (e.key.toLowerCase()) {
+      case "a":
+        setKeys((prev) => ({ ...prev, a: { pressed: false } }));
+        break;
+      case "d":
+        setKeys((prev) => ({ ...prev, d: { pressed: false } }));
+        break;
+      case " ":
+        setKeys((prev) => ({ ...prev, space: { pressed: false } }));
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Actualizar la posición del personaje en función de las teclas presionadas
+  const updateCharacterPosition = async () => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
 
@@ -77,21 +116,20 @@ const GameControls = ({
 
       let newX = character.position.x;
 
-      switch (e.key.toLowerCase()) {
-        case "a": // Movimiento izquierda
-          newX -= moveAmount;
-          break;
-        case "d": // Movimiento derecha
-          newX += moveAmount;
-          break;
-        case " ": // Salto
-          // Verificar si el personaje está en el suelo
-          if (checkCollision(character.position.x, character.position.y + 1)) {
-            character.velocityY = jumpStrength; // Aplicar fuerza de salto
-          }
-          break;
-        default:
-          break;
+      // Movimiento horizontal fijo por frame
+      if (keys.a.pressed) {
+        newX -= moveAmount;
+      }
+      if (keys.d.pressed) {
+        newX += moveAmount;
+      }
+
+      // Salto
+      if (
+        keys.space.pressed &&
+        checkCollision(character.position.x, character.position.y + 1)
+      ) {
+        character.velocityY = jumpStrength;
       }
 
       // Verificar colisión después del movimiento horizontal
@@ -108,8 +146,27 @@ const GameControls = ({
   // Escuchar eventos de teclado
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
   }, [playerRef, user, currentTurn, currentCharacterIndex]);
+
+  // Actualizar la posición del personaje constantemente
+  useEffect(() => {
+    let animationFrameId;
+
+    const update = () => {
+      if (currentTurn === user.uid) {
+        updateCharacterPosition();
+      }
+      animationFrameId = requestAnimationFrame(update);
+    };
+
+    animationFrameId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [keys, currentTurn, user.uid]);
 
   // Aplicar gravedad constantemente
   useEffect(() => {
