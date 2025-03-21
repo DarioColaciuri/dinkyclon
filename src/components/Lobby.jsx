@@ -96,9 +96,9 @@ const Lobby = ({ user, userData }) => {
               nickname: userData.nickname,
               elo: userData.elo,
               characters: [
-                { position: { x: 100, y: 100 }, life: 100 },
-                { position: { x: 110, y: 200 }, life: 100 },
-                { position: { x: 120, y: 300 }, life: 100 },
+                { position: { x: 80, y: 100 }, life: 100 },
+                { position: { x: 120, y: 200 }, life: 100 },
+                { position: { x: 160, y: 300 }, life: 100 },
               ],
               connected: true,
             },
@@ -107,8 +107,8 @@ const Lobby = ({ user, userData }) => {
               nickname: opponent.nickname,
               elo: opponent.elo,
               characters: [
-                { position: { x: 700, y: 100 }, life: 100 },
-                { position: { x: 690, y: 200 }, life: 100 },
+                { position: { x: 600, y: 100 }, life: 100 },
+                { position: { x: 640, y: 200 }, life: 100 },
                 { position: { x: 680, y: 300 }, life: 100 },
               ],
               connected: false,

@@ -11,8 +11,6 @@ const GameControls = ({
   const gravity = 0.5; // Fuerza de gravedad
   const jumpStrength = -10; // Fuerza de salto inicial
   const tileSize = 10; // Tamaño de los tiles del mapa
-  const [velocityY, setVelocityY] = useState(0); // Velocidad vertical para el salto
-  const [isJumping, setIsJumping] = useState(false); // Estado para controlar si el personaje está saltando
 
   // Verificar colisiones
   const checkCollision = (x, y) => {
@@ -33,25 +31,27 @@ const GameControls = ({
     return false;
   };
 
-  // Aplicar gravedad y salto a todos los personajes
-  const applyGravityAndJump = async () => {
+  // Aplicar gravedad a todos los personajes
+  const applyGravity = async () => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
 
-    const newPlayerCharacters = currentCharacters.map((character, index) => {
-      if (index !== currentCharacterIndex) return character;
+    const newPlayerCharacters = currentCharacters.map((character) => {
+      // Si el personaje no tiene una velocidad vertical, inicializarla
+      if (character.velocityY === undefined) {
+        character.velocityY = 0;
+      }
 
-      let newY = character.position.y + velocityY; // Aplicar velocidad vertical
+      let newY = character.position.y + character.velocityY; // Aplicar velocidad vertical
 
       // Verificar colisión debajo del personaje
       if (!checkCollision(character.position.x, newY)) {
         // Aplicar gravedad si no está en el suelo
-        setVelocityY((prev) => prev + gravity);
+        character.velocityY += gravity;
         return { ...character, position: { x: character.position.x, y: newY } };
       } else {
-        // Detener el salto si hay colisión
-        setVelocityY(0);
-        setIsJumping(false);
+        // Detener la caída si hay colisión
+        character.velocityY = 0;
         return character;
       }
     });
@@ -85,12 +85,9 @@ const GameControls = ({
           newX += moveAmount;
           break;
         case " ": // Salto
-          if (
-            !isJumping &&
-            checkCollision(character.position.x, character.position.y + 1)
-          ) {
-            setIsJumping(true);
-            setVelocityY(jumpStrength);
+          // Verificar si el personaje está en el suelo
+          if (checkCollision(character.position.x, character.position.y + 1)) {
+            character.velocityY = jumpStrength; // Aplicar fuerza de salto
           }
           break;
         default:
@@ -112,16 +109,16 @@ const GameControls = ({
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [playerRef, user, currentTurn, currentCharacterIndex, isJumping]);
+  }, [playerRef, user, currentTurn, currentCharacterIndex]);
 
-  // Aplicar gravedad y salto constantemente
+  // Aplicar gravedad constantemente
   useEffect(() => {
     const interval = setInterval(() => {
-      applyGravityAndJump();
+      applyGravity();
     }, 1000 / 60); // 60 FPS
 
     return () => clearInterval(interval);
-  }, [velocityY, isJumping]);
+  }, []);
 
   return null;
 };
