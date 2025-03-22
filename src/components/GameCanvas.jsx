@@ -81,14 +81,14 @@ const GameCanvas = ({
           const targetY = centerY + Math.sin(angleInRadians) * 50;
 
           // Dibujar la línea de apuntado
-          ctx.strokeStyle = "white";
+          ctx.strokeStyle = "black";
           ctx.beginPath();
           ctx.moveTo(centerX, centerY);
           ctx.lineTo(targetX, targetY);
           ctx.stroke();
 
           // Dibujar la mira
-          ctx.fillStyle = "white";
+          ctx.fillStyle = "black";
           ctx.beginPath();
           ctx.arc(targetX, targetY, 5, 0, 2 * Math.PI);
           ctx.fill();
