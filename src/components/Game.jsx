@@ -241,6 +241,9 @@ const Game = () => {
             opponentCharacters={opponentCharacters}
             playerImage={playerImage}
             opponentImage={opponentImage}
+            currentTurn={currentTurn}
+            user={user} // Pasar el prop `user`
+            currentCharacterIndex={currentCharacterIndex}
           />
           <GameControls
             currentTurn={currentTurn}

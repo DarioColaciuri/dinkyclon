@@ -8,6 +8,9 @@ const GameCanvas = ({
   opponentCharacters,
   playerImage,
   opponentImage,
+  currentTurn,
+  user = { uid: null }, // Valor por defecto para `user`
+  currentCharacterIndex,
 }) => {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,7 +37,7 @@ const GameCanvas = ({
         }
       });
 
-      const drawCharacter = (character, image, isOpponent) => {
+      const drawCharacter = (character, image, isOpponent, isActive) => {
         if (image) {
           ctx.drawImage(
             image,
@@ -67,16 +70,52 @@ const GameCanvas = ({
             }
           });
         }
+
+        // Dibujar la mira de apuntado solo si es el personaje activo
+        if (isActive && character.aimAngle !== undefined) {
+          const centerX = character.position.x + 15;
+          const centerY = character.position.y + 20;
+
+          const angleInRadians = (character.aimAngle * Math.PI) / 180;
+          const targetX = centerX + Math.cos(angleInRadians) * 50;
+          const targetY = centerY + Math.sin(angleInRadians) * 50;
+
+          // Dibujar la línea de apuntado
+          ctx.strokeStyle = "white";
+          ctx.beginPath();
+          ctx.moveTo(centerX, centerY);
+          ctx.lineTo(targetX, targetY);
+          ctx.stroke();
+
+          // Dibujar la mira
+          ctx.fillStyle = "white";
+          ctx.beginPath();
+          ctx.arc(targetX, targetY, 5, 0, 2 * Math.PI);
+          ctx.fill();
+        }
       };
 
+      // Determinar si es el turno del jugador
+      const isPlayerTurn = currentTurn === user.uid;
+
       // Dibujar los personajes del jugador y sus proyectiles
-      playerCharacters.forEach((character) =>
-        drawCharacter(character, playerImage, false)
+      playerCharacters.forEach((character, index) =>
+        drawCharacter(
+          character,
+          playerImage,
+          false,
+          isPlayerTurn && index === currentCharacterIndex
+        )
       );
 
       // Dibujar los personajes del oponente y sus proyectiles
-      opponentCharacters.forEach((character) =>
-        drawCharacter(character, opponentImage, true)
+      opponentCharacters.forEach((character, index) =>
+        drawCharacter(
+          character,
+          opponentImage,
+          true,
+          !isPlayerTurn && index === currentCharacterIndex
+        )
       );
 
       animationFrameId = requestAnimationFrame(draw);
@@ -84,7 +123,15 @@ const GameCanvas = ({
 
     draw();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [playerCharacters, opponentCharacters, map, backgroundImage]);
+  }, [
+    playerCharacters,
+    opponentCharacters,
+    map,
+    backgroundImage,
+    currentTurn,
+    user.uid,
+    currentCharacterIndex,
+  ]);
 
   return (
     <canvas ref={canvasRef} width={800} height={600} className="game-canvas" />

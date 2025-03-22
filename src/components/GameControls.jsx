@@ -19,6 +19,8 @@ const GameControls = ({
     d: { pressed: false },
     space: { pressed: false },
     control: { pressed: false },
+    w: { pressed: false },
+    s: { pressed: false },
   });
 
   const checkCollision = (x, y) => {
@@ -115,6 +117,12 @@ const GameControls = ({
       case "control":
         setKeys((prev) => ({ ...prev, control: { pressed: true } }));
         break;
+      case "w":
+        setKeys((prev) => ({ ...prev, w: { pressed: true } }));
+        break;
+      case "s":
+        setKeys((prev) => ({ ...prev, s: { pressed: true } }));
+        break;
       default:
         break;
     }
@@ -134,9 +142,34 @@ const GameControls = ({
       case "control":
         setKeys((prev) => ({ ...prev, control: { pressed: false } }));
         break;
+      case "w":
+        setKeys((prev) => ({ ...prev, w: { pressed: false } }));
+        break;
+      case "s":
+        setKeys((prev) => ({ ...prev, s: { pressed: false } }));
+        break;
       default:
         break;
     }
+  };
+
+  const updateAimAngle = async (delta) => {
+    const snapshot = await get(playerRef);
+    const currentCharacters = snapshot.val()?.characters || [];
+    const currentCharacter = currentCharacters[currentCharacterIndex];
+
+    if (!currentCharacter) return;
+
+    // Actualizar el ángulo de apuntado
+    currentCharacter.aimAngle = (currentCharacter.aimAngle || 0) + delta;
+
+    // Asegurarse de que el ángulo esté dentro del rango [0, 360]
+    if (currentCharacter.aimAngle < 0) currentCharacter.aimAngle += 360;
+    if (currentCharacter.aimAngle >= 360) currentCharacter.aimAngle -= 360;
+
+    currentCharacters[currentCharacterIndex] = currentCharacter;
+
+    await set(playerRef, { ...snapshot.val(), characters: currentCharacters });
   };
 
   const createProjectile = async () => {
@@ -146,11 +179,12 @@ const GameControls = ({
 
     if (!currentCharacter) return;
 
+    const angleInRadians = ((currentCharacter.aimAngle || 0) * Math.PI) / 180;
     const projectile = {
       x: currentCharacter.position.x + 30,
       y: currentCharacter.position.y + 20,
-      velocityX: projectileSpeed,
-      velocityY: 0,
+      velocityX: Math.cos(angleInRadians) * projectileSpeed,
+      velocityY: Math.sin(angleInRadians) * projectileSpeed,
       active: true,
     };
 
@@ -170,6 +204,11 @@ const GameControls = ({
 
     const newPlayerCharacters = currentCharacters.map((character, index) => {
       if (index !== currentCharacterIndex) return character;
+
+      // Inicializar aimAngle si no está definido
+      if (character.aimAngle === undefined) {
+        character.aimAngle = 0; // Ángulo inicial
+      }
 
       let newX = character.position.x;
       if (keys.a.pressed) newX -= moveAmount;
@@ -250,6 +289,19 @@ const GameControls = ({
       createProjectile();
     }
   }, [keys.control.pressed, currentTurn, user.uid]);
+
+  useEffect(() => {
+    let intervalId;
+
+    if (currentTurn === user.uid) {
+      intervalId = setInterval(() => {
+        if (keys.w.pressed) updateAimAngle(-1); // Girar hacia arriba
+        if (keys.s.pressed) updateAimAngle(1); // Girar hacia abajo
+      }, 16); // Actualizar cada 16ms (~60fps)
+    }
+
+    return () => clearInterval(intervalId);
+  }, [keys.w.pressed, keys.s.pressed, currentTurn, user.uid]);
 
   return null;
 };
