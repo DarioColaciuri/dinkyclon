@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { get, set } from "firebase/database";
 
 const GameControls = ({
@@ -8,18 +8,19 @@ const GameControls = ({
   currentCharacterIndex,
   map,
 }) => {
-  const gravity = 0.5; // Fuerza de gravedad
-  const jumpStrength = -10; // Fuerza de salto inicial
-  const tileSize = 10; // Tamaño de los tiles del mapa
-  const moveAmount = 5; // Cantidad de movimiento horizontal
+  const gravity = 0.5;
+  const jumpStrength = -10;
+  const tileSize = 10;
+  const moveAmount = 5;
+  const projectileSpeed = 10;
 
   const [keys, setKeys] = useState({
     a: { pressed: false },
     d: { pressed: false },
     space: { pressed: false },
+    control: { pressed: false },
   });
 
-  // Verificar colisiones
   const checkCollision = (x, y) => {
     const width = 30;
     const height = 40;
@@ -38,41 +39,67 @@ const GameControls = ({
     return false;
   };
 
-  // Aplicar gravedad a todos los personajes
+  const checkProjectileCollision = (x, y) => {
+    const width = 10;
+    const height = 10;
+
+    for (let dx = 0; dx < width; dx++) {
+      for (let dy = 0; dy < height; dy++) {
+        const col = Math.floor((x + dx) / tileSize);
+        const row = Math.floor((y + dy) / tileSize);
+        const index = row * 80 + col;
+
+        if (map[index] === 1) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   const applyGravity = async () => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
 
-    const newPlayerCharacters = currentCharacters.map((character) => {
-      // Si el personaje no tiene una velocidad vertical, inicializarla
+    const updatedCharacters = currentCharacters.map((character) => {
       if (character.velocityY === undefined) {
         character.velocityY = 0;
       }
 
-      let newY = character.position.y + character.velocityY; // Aplicar velocidad vertical
+      let newY = character.position.y + character.velocityY;
 
-      // Verificar colisión debajo del personaje
       if (!checkCollision(character.position.x, newY)) {
-        // Aplicar gravedad si no está en el suelo
         character.velocityY += gravity;
-        return { ...character, position: { x: character.position.x, y: newY } };
+        character.position.y = newY;
       } else {
-        // Detener la caída si hay colisión
         character.velocityY = 0;
-        return character;
       }
+
+      if (character.projectiles) {
+        character.projectiles = character.projectiles
+          .map((projectile) => {
+            if (projectile.active) {
+              let newY = projectile.y + (projectile.velocityY || 0);
+              if (!checkProjectileCollision(projectile.x, newY)) {
+                projectile.velocityY = (projectile.velocityY || 0) + gravity;
+                projectile.y = newY;
+              } else {
+                projectile.active = false;
+              }
+            }
+            return projectile;
+          })
+          .filter((p) => p.active);
+      }
+
+      return character;
     });
 
-    await set(playerRef, { ...user, characters: newPlayerCharacters });
+    await set(playerRef, { ...snapshot.val(), characters: updatedCharacters });
   };
 
-  // Mover personaje horizontalmente y saltar
   const handleKeyDown = async (e) => {
-    // Evitar el scroll de la página al presionar la barra espaciadora (globalmente)
-    if (e.key === " ") {
-      e.preventDefault();
-    }
-
+    if (e.key === " ") e.preventDefault();
     if (currentTurn !== user.uid) return;
 
     switch (e.key.toLowerCase()) {
@@ -85,12 +112,15 @@ const GameControls = ({
       case " ":
         setKeys((prev) => ({ ...prev, space: { pressed: true } }));
         break;
+      case "control":
+        setKeys((prev) => ({ ...prev, control: { pressed: true } }));
+        break;
       default:
         break;
     }
   };
 
-  const handleKeyUp = async (e) => {
+  const handleKeyUp = (e) => {
     switch (e.key.toLowerCase()) {
       case "a":
         setKeys((prev) => ({ ...prev, a: { pressed: false } }));
@@ -101,12 +131,39 @@ const GameControls = ({
       case " ":
         setKeys((prev) => ({ ...prev, space: { pressed: false } }));
         break;
+      case "control":
+        setKeys((prev) => ({ ...prev, control: { pressed: false } }));
+        break;
       default:
         break;
     }
   };
 
-  // Actualizar la posición del personaje en función de las teclas presionadas
+  const createProjectile = async () => {
+    const snapshot = await get(playerRef);
+    const currentCharacters = snapshot.val()?.characters || [];
+    const currentCharacter = currentCharacters[currentCharacterIndex];
+
+    if (!currentCharacter) return;
+
+    const projectile = {
+      x: currentCharacter.position.x + 30,
+      y: currentCharacter.position.y + 20,
+      velocityX: projectileSpeed,
+      velocityY: 0,
+      active: true,
+    };
+
+    currentCharacter.projectiles = [
+      ...(currentCharacter.projectiles || []),
+      projectile,
+    ];
+
+    currentCharacters[currentCharacterIndex] = currentCharacter;
+
+    await set(playerRef, { ...snapshot.val(), characters: currentCharacters });
+  };
+
   const updateCharacterPosition = async () => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
@@ -115,16 +172,9 @@ const GameControls = ({
       if (index !== currentCharacterIndex) return character;
 
       let newX = character.position.x;
+      if (keys.a.pressed) newX -= moveAmount;
+      if (keys.d.pressed) newX += moveAmount;
 
-      // Movimiento horizontal fijo por frame
-      if (keys.a.pressed) {
-        newX -= moveAmount;
-      }
-      if (keys.d.pressed) {
-        newX += moveAmount;
-      }
-
-      // Salto
       if (
         keys.space.pressed &&
         checkCollision(character.position.x, character.position.y + 1)
@@ -132,18 +182,38 @@ const GameControls = ({
         character.velocityY = jumpStrength;
       }
 
-      // Verificar colisión después del movimiento horizontal
       if (!checkCollision(newX, character.position.y)) {
-        return { ...character, position: { x: newX, y: character.position.y } };
-      } else {
-        return character; // No mover si hay colisión
+        character.position.x = newX;
       }
+
+      if (character.projectiles) {
+        character.projectiles = character.projectiles
+          .map((projectile) => {
+            if (projectile.active) {
+              let nextX = projectile.x + projectile.velocityX;
+              let nextY = projectile.y + projectile.velocityY;
+
+              if (checkProjectileCollision(nextX, nextY)) {
+                projectile.active = false;
+              } else {
+                projectile.x = nextX;
+                projectile.y = nextY;
+              }
+            }
+            return projectile;
+          })
+          .filter((p) => p.active);
+      }
+
+      return character;
     });
 
-    await set(playerRef, { ...user, characters: newPlayerCharacters });
+    await set(playerRef, {
+      ...snapshot.val(),
+      characters: newPlayerCharacters,
+    });
   };
 
-  // Escuchar eventos de teclado
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
@@ -153,7 +223,6 @@ const GameControls = ({
     };
   }, [playerRef, user, currentTurn, currentCharacterIndex]);
 
-  // Actualizar la posición del personaje constantemente
   useEffect(() => {
     let animationFrameId;
 
@@ -168,14 +237,19 @@ const GameControls = ({
     return () => cancelAnimationFrame(animationFrameId);
   }, [keys, currentTurn, user.uid]);
 
-  // Aplicar gravedad constantemente
   useEffect(() => {
     const interval = setInterval(() => {
       applyGravity();
-    }, 1000 / 60); // 60 FPS
+    }, 1000 / 60);
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (keys.control.pressed && currentTurn === user.uid) {
+      createProjectile();
+    }
+  }, [keys.control.pressed, currentTurn, user.uid]);
 
   return null;
 };

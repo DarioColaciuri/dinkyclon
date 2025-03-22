@@ -34,49 +34,50 @@ const GameCanvas = ({
         }
       });
 
-      // Dibujar los personajes del jugador y sus barras de vida
-      playerCharacters.forEach(({ position, life }) => {
-        if (playerImage) {
-          ctx.drawImage(playerImage, position.x, position.y, 30, 40);
+      const drawCharacter = (character, image, isOpponent) => {
+        if (image) {
+          ctx.drawImage(
+            image,
+            character.position.x,
+            character.position.y,
+            30,
+            40
+          );
 
           // Dibujar la barra de vida
-          const barWidth = 30; // Ancho de la barra de vida
-          const barHeight = 5; // Altura de la barra de vida
-          const barX = position.x; // Posición X de la barra de vida
-          const barY = position.y - 10; // Posición Y de la barra de vida (encima del personaje)
+          const barWidth = 30;
+          const barHeight = 5;
+          const barX = character.position.x;
+          const barY = character.position.y - 10;
 
-          // Fondo de la barra de vida (amarillo)
           ctx.fillStyle = "yellow";
           ctx.fillRect(barX, barY, barWidth, barHeight);
 
-          // Vida actual (rojo)
-          const lifeWidth = (life / 100) * barWidth; // Calcular el ancho de la vida
+          const lifeWidth = (character.life / 100) * barWidth;
           ctx.fillStyle = "red";
           ctx.fillRect(barX, barY, lifeWidth, barHeight);
         }
-      });
 
-      // Dibujar los personajes del oponente y sus barras de vida
-      opponentCharacters.forEach(({ position, life }) => {
-        if (opponentImage) {
-          ctx.drawImage(opponentImage, position.x, position.y, 30, 40);
-
-          // Dibujar la barra de vida
-          const barWidth = 30; // Ancho de la barra de vida
-          const barHeight = 5; // Altura de la barra de vida
-          const barX = position.x; // Posición X de la barra de vida
-          const barY = position.y - 10; // Posición Y de la barra de vida (encima del personaje)
-
-          // Fondo de la barra de vida (amarillo)
-          ctx.fillStyle = "yellow";
-          ctx.fillRect(barX, barY, barWidth, barHeight);
-
-          // Vida actual (rojo)
-          const lifeWidth = (life / 100) * barWidth; // Calcular el ancho de la vida
-          ctx.fillStyle = "red";
-          ctx.fillRect(barX, barY, lifeWidth, barHeight);
+        // Dibujar proyectiles
+        if (character.projectiles) {
+          character.projectiles.forEach((projectile) => {
+            if (projectile.active) {
+              ctx.fillStyle = isOpponent ? "blue" : "red";
+              ctx.fillRect(projectile.x, projectile.y, 10, 10);
+            }
+          });
         }
-      });
+      };
+
+      // Dibujar los personajes del jugador y sus proyectiles
+      playerCharacters.forEach((character) =>
+        drawCharacter(character, playerImage, false)
+      );
+
+      // Dibujar los personajes del oponente y sus proyectiles
+      opponentCharacters.forEach((character) =>
+        drawCharacter(character, opponentImage, true)
+      );
 
       animationFrameId = requestAnimationFrame(draw);
     };
