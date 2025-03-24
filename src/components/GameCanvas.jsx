@@ -9,8 +9,9 @@ const GameCanvas = ({
   playerImage,
   opponentImage,
   currentTurn,
-  user = { uid: null }, // Valor por defecto para `user`
+  user = { uid: null },
   currentCharacterIndex,
+  chargeProgress,
 }) => {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -81,17 +82,88 @@ const GameCanvas = ({
           const targetY = centerY + Math.sin(angleInRadians) * 50;
 
           // Dibujar la línea de apuntado
-          ctx.strokeStyle = "black";
+          ctx.strokeStyle = "rgba(0, 0, 0, 0.5)";
+          ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(centerX, centerY);
           ctx.lineTo(targetX, targetY);
           ctx.stroke();
 
-          // Dibujar la mira
-          ctx.fillStyle = "black";
+          // Dibujar mira estilizada
+          const crosshairSize = 20;
+          const crosshairColor = isOpponent
+            ? "rgba(0, 100, 255, 0.8)"
+            : "rgba(255, 50, 50, 0.8)";
+
+          // Círculo exterior
           ctx.beginPath();
-          ctx.arc(targetX, targetY, 5, 0, 2 * Math.PI);
+          ctx.arc(targetX, targetY, crosshairSize / 2, 0, Math.PI * 2);
+          ctx.strokeStyle = crosshairColor;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Círculo interior
+          ctx.beginPath();
+          ctx.arc(targetX, targetY, crosshairSize / 4, 0, Math.PI * 2);
+          ctx.strokeStyle = crosshairColor;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // Líneas cruzadas
+          ctx.beginPath();
+          ctx.moveTo(targetX - crosshairSize / 2, targetY);
+          ctx.lineTo(targetX - crosshairSize / 4, targetY);
+          ctx.moveTo(targetX + crosshairSize / 4, targetY);
+          ctx.lineTo(targetX + crosshairSize / 2, targetY);
+          ctx.moveTo(targetX, targetY - crosshairSize / 2);
+          ctx.lineTo(targetX, targetY - crosshairSize / 4);
+          ctx.moveTo(targetX, targetY + crosshairSize / 4);
+          ctx.lineTo(targetX, targetY + crosshairSize / 2);
+          ctx.strokeStyle = crosshairColor;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          // Punto central
+          ctx.beginPath();
+          ctx.arc(targetX, targetY, 2, 0, Math.PI * 2);
+          ctx.fillStyle = crosshairColor;
           ctx.fill();
+
+          // Dibujar barra de carga si hay progreso
+          if (chargeProgress > 0 && currentTurn === user.uid) {
+            const chargeBarWidth = 50;
+            const chargeBarHeight = 6;
+            const chargeBarX = targetX - chargeBarWidth / 2;
+            const chargeBarY = targetY - crosshairSize - 10;
+
+            // Fondo de la barra de carga
+            ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+            ctx.fillRect(
+              chargeBarX,
+              chargeBarY,
+              chargeBarWidth,
+              chargeBarHeight
+            );
+
+            // Barra de carga progresiva
+            ctx.fillStyle = crosshairColor;
+            ctx.fillRect(
+              chargeBarX,
+              chargeBarY,
+              chargeBarWidth * chargeProgress,
+              chargeBarHeight
+            );
+
+            // Borde de la barra
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(
+              chargeBarX,
+              chargeBarY,
+              chargeBarWidth,
+              chargeBarHeight
+            );
+          }
         }
       };
 
@@ -131,6 +203,7 @@ const GameCanvas = ({
     currentTurn,
     user.uid,
     currentCharacterIndex,
+    chargeProgress,
   ]);
 
   return (

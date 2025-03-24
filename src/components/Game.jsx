@@ -24,6 +24,7 @@ const Game = () => {
   const [backgroundImage, setBackgroundImage] = useState(null);
   const [playerImage, setPlayerImage] = useState(null);
   const [opponentImage, setOpponentImage] = useState(null);
+  const [chargeProgress, setChargeProgress] = useState(0);
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -142,7 +143,7 @@ const Game = () => {
       const gameEndListener = onValue(gameEndRef, (snapshot) => {
         if (snapshot.exists() && snapshot.val() === "ended") {
           alert("El oponente ha abandonado la partida.");
-          navigate("/lobby"); // Solo navegar al lobby, no ejecutar handleEndGame
+          navigate("/lobby");
         }
       });
 
@@ -187,20 +188,15 @@ const Game = () => {
   // Finalizar partida
   const handleEndGame = async () => {
     try {
-      // Verificar si la partida ya ha sido eliminada
       const gameSnapshot = await get(gameRef);
       if (!gameSnapshot.exists()) {
         navigate("/lobby");
         return;
       }
 
-      // 1. Notificar al otro jugador que la partida ha terminado
       await set(gameEndRef, "ended");
-
-      // 2. Eliminar la partida completa
       await remove(gameRef);
 
-      // 3. Eliminar las referencias de matchmaking de ambos jugadores
       const playerMatchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
       const opponentMatchmakingRef = ref(
         realtimeDb,
@@ -213,7 +209,6 @@ const Game = () => {
         await remove(opponentMatchmakingRef);
       }
 
-      // 4. Navegar de vuelta al lobby
       navigate("/lobby");
     } catch (error) {
       alert("Hubo un error al finalizar la partida. Inténtalo de nuevo.");
@@ -242,8 +237,9 @@ const Game = () => {
             playerImage={playerImage}
             opponentImage={opponentImage}
             currentTurn={currentTurn}
-            user={user} // Pasar el prop `user`
+            user={user}
             currentCharacterIndex={currentCharacterIndex}
+            chargeProgress={chargeProgress}
           />
           <GameControls
             currentTurn={currentTurn}
@@ -251,7 +247,8 @@ const Game = () => {
             playerRef={playerRef}
             currentCharacterIndex={currentCharacterIndex}
             map={map}
-            isCreator={isCreator} // Añade esta línea
+            isCreator={isCreator}
+            setChargeProgress={setChargeProgress}
           />
           <GameEnd handleEndGame={handleEndGame} />
         </>

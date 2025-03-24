@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { get, set } from "firebase/database";
 
 const GameControls = ({
@@ -8,12 +8,15 @@ const GameControls = ({
   currentCharacterIndex,
   map,
   isCreator,
+  setChargeProgress,
 }) => {
   const gravity = 0.5;
   const jumpStrength = -10;
   const tileSize = 10;
   const moveAmount = 5;
-  const projectileSpeed = 10;
+  const baseProjectileSpeed = 5;
+  const maxProjectileSpeed = 20;
+  const maxChargeTime = 1000;
 
   const [keys, setKeys] = useState({
     a: { pressed: false },
@@ -23,6 +26,10 @@ const GameControls = ({
     w: { pressed: false },
     s: { pressed: false },
   });
+
+  const chargeStartTime = useRef(null);
+  const isCharging = useRef(false);
+  const chargeInterval = useRef(null);
 
   const checkCollision = (x, y) => {
     const width = 30;
@@ -99,6 +106,15 @@ const GameControls = ({
         setKeys((prev) => ({ ...prev, space: { pressed: true } }));
         break;
       case "control":
+        if (!isCharging.current) {
+          isCharging.current = true;
+          chargeStartTime.current = Date.now();
+          chargeInterval.current = setInterval(() => {
+            const chargeTime = Date.now() - chargeStartTime.current;
+            const progress = Math.min(chargeTime / maxChargeTime, 1);
+            setChargeProgress(progress);
+          }, 50);
+        }
         setKeys((prev) => ({ ...prev, control: { pressed: true } }));
         break;
       case "w":
@@ -124,6 +140,18 @@ const GameControls = ({
         setKeys((prev) => ({ ...prev, space: { pressed: false } }));
         break;
       case "control":
+        if (isCharging.current) {
+          clearInterval(chargeInterval.current);
+          const chargeTime = Date.now() - chargeStartTime.current;
+          const normalizedCharge =
+            Math.min(chargeTime, maxChargeTime) / maxChargeTime;
+          const projectileSpeed =
+            baseProjectileSpeed +
+            (maxProjectileSpeed - baseProjectileSpeed) * normalizedCharge;
+          createProjectile(projectileSpeed);
+          isCharging.current = false;
+          setChargeProgress(0);
+        }
         setKeys((prev) => ({ ...prev, control: { pressed: false } }));
         break;
       case "w":
@@ -156,7 +184,7 @@ const GameControls = ({
     await set(playerRef, { ...snapshot.val(), characters: currentCharacters });
   };
 
-  const createProjectile = async () => {
+  const createProjectile = async (speed) => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
     const currentCharacter = currentCharacters[currentCharacterIndex];
@@ -170,8 +198,8 @@ const GameControls = ({
         ? currentCharacter.position.x + 30
         : currentCharacter.position.x - 10,
       y: currentCharacter.position.y + 20,
-      velocityX: Math.cos(angleInRadians) * projectileSpeed,
-      velocityY: Math.sin(angleInRadians) * projectileSpeed,
+      velocityX: Math.cos(angleInRadians) * speed,
+      velocityY: Math.sin(angleInRadians) * speed,
       active: true,
     };
 
@@ -215,11 +243,10 @@ const GameControls = ({
         character.projectiles = character.projectiles
           .map((projectile) => {
             if (projectile.active) {
-              // Aplicar gravedad a proyectiles
               if (projectile.velocityY === undefined) {
                 projectile.velocityY = 0;
               }
-              projectile.velocityY += gravity * 0.5; // Gravedad reducida para proyectiles
+              projectile.velocityY += gravity * 0.5;
 
               let nextX = projectile.x + projectile.velocityX;
               let nextY = projectile.y + projectile.velocityY;
@@ -277,12 +304,6 @@ const GameControls = ({
   }, []);
 
   useEffect(() => {
-    if (keys.control.pressed && currentTurn === user.uid) {
-      createProjectile();
-    }
-  }, [keys.control.pressed, currentTurn, user.uid]);
-
-  useEffect(() => {
     let intervalId;
 
     if (currentTurn === user.uid) {
@@ -294,6 +315,14 @@ const GameControls = ({
 
     return () => clearInterval(intervalId);
   }, [keys.w.pressed, keys.s.pressed, currentTurn, user.uid]);
+
+  useEffect(() => {
+    return () => {
+      if (chargeInterval.current) {
+        clearInterval(chargeInterval.current);
+      }
+    };
+  }, []);
 
   return null;
 };
