@@ -251,6 +251,7 @@ const Game = () => {
             playerRef={playerRef}
             currentCharacterIndex={currentCharacterIndex}
             map={map}
+            isCreator={isCreator} // Añade esta línea
           />
           <GameEnd handleEndGame={handleEndGame} />
         </>

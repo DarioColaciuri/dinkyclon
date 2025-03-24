@@ -7,6 +7,7 @@ const GameControls = ({
   playerRef,
   currentCharacterIndex,
   map,
+  isCreator,
 }) => {
   const gravity = 0.5;
   const jumpStrength = -10;
@@ -77,23 +78,6 @@ const GameControls = ({
         character.velocityY = 0;
       }
 
-      if (character.projectiles) {
-        character.projectiles = character.projectiles
-          .map((projectile) => {
-            if (projectile.active) {
-              let newY = projectile.y + (projectile.velocityY || 0);
-              if (!checkProjectileCollision(projectile.x, newY)) {
-                projectile.velocityY = (projectile.velocityY || 0) + gravity;
-                projectile.y = newY;
-              } else {
-                projectile.active = false;
-              }
-            }
-            return projectile;
-          })
-          .filter((p) => p.active);
-      }
-
       return character;
     });
 
@@ -160,10 +144,10 @@ const GameControls = ({
 
     if (!currentCharacter) return;
 
-    // Actualizar el ángulo de apuntado
-    currentCharacter.aimAngle = (currentCharacter.aimAngle || 0) + delta;
+    const adjustedDelta = isCreator ? delta : -delta;
+    currentCharacter.aimAngle =
+      (currentCharacter.aimAngle || (isCreator ? 0 : 180)) + adjustedDelta;
 
-    // Asegurarse de que el ángulo esté dentro del rango [0, 360]
     if (currentCharacter.aimAngle < 0) currentCharacter.aimAngle += 360;
     if (currentCharacter.aimAngle >= 360) currentCharacter.aimAngle -= 360;
 
@@ -179,9 +163,12 @@ const GameControls = ({
 
     if (!currentCharacter) return;
 
-    const angleInRadians = ((currentCharacter.aimAngle || 0) * Math.PI) / 180;
+    const angleInRadians =
+      ((currentCharacter.aimAngle || (isCreator ? 0 : 180)) * Math.PI) / 180;
     const projectile = {
-      x: currentCharacter.position.x + 30,
+      x: isCreator
+        ? currentCharacter.position.x + 30
+        : currentCharacter.position.x - 10,
       y: currentCharacter.position.y + 20,
       velocityX: Math.cos(angleInRadians) * projectileSpeed,
       velocityY: Math.sin(angleInRadians) * projectileSpeed,
@@ -205,9 +192,8 @@ const GameControls = ({
     const newPlayerCharacters = currentCharacters.map((character, index) => {
       if (index !== currentCharacterIndex) return character;
 
-      // Inicializar aimAngle si no está definido
       if (character.aimAngle === undefined) {
-        character.aimAngle = 0; // Ángulo inicial
+        character.aimAngle = isCreator ? 0 : 180;
       }
 
       let newX = character.position.x;
@@ -229,6 +215,12 @@ const GameControls = ({
         character.projectiles = character.projectiles
           .map((projectile) => {
             if (projectile.active) {
+              // Aplicar gravedad a proyectiles
+              if (projectile.velocityY === undefined) {
+                projectile.velocityY = 0;
+              }
+              projectile.velocityY += gravity * 0.5; // Gravedad reducida para proyectiles
+
               let nextX = projectile.x + projectile.velocityX;
               let nextY = projectile.y + projectile.velocityY;
 
@@ -295,9 +287,9 @@ const GameControls = ({
 
     if (currentTurn === user.uid) {
       intervalId = setInterval(() => {
-        if (keys.w.pressed) updateAimAngle(-1); // Girar hacia arriba
-        if (keys.s.pressed) updateAimAngle(1); // Girar hacia abajo
-      }, 16); // Actualizar cada 16ms (~60fps)
+        if (keys.w.pressed) updateAimAngle(-1);
+        if (keys.s.pressed) updateAimAngle(1);
+      }, 16);
     }
 
     return () => clearInterval(intervalId);
