@@ -220,6 +220,14 @@ const GameControls = ({
     const newPlayerCharacters = currentCharacters.map((character, index) => {
       if (index !== currentCharacterIndex) return character;
 
+      // === SOLUCIÓN: Limpiar proyectiles si no es nuestro turno ===
+      if (currentTurn !== user.uid) {
+        return {
+          ...character,
+          projectiles: [],
+        };
+      }
+
       if (character.aimAngle === undefined) {
         character.aimAngle = isCreator ? 0 : 180;
       }

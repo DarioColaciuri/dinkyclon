@@ -49,6 +49,30 @@ const Game = () => {
 
   const map = Level2();
 
+  // === SOLUCIÓN: Limpiar proyectiles al cambiar de turno ===
+  useEffect(() => {
+    const cleanupProjectiles = async () => {
+      if (!currentTurn || !user?.uid) return;
+
+      const snapshot = await get(gameRef);
+      if (!snapshot.exists()) return;
+
+      const gameData = snapshot.val();
+      const isPlayerTurn = currentTurn === user.uid;
+      const targetPlayer = isPlayerTurn ? "player2" : "player1";
+
+      await set(
+        ref(realtimeDb, `games/${gameId}/${targetPlayer}/characters`),
+        gameData[targetPlayer]?.characters?.map((character) => ({
+          ...character,
+          projectiles: [],
+        })) || []
+      );
+    };
+
+    cleanupProjectiles();
+  }, [currentTurn, user?.uid, gameId]);
+
   // Cargar imágenes
   useEffect(() => {
     const playerImg = new Image();
