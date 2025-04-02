@@ -34,14 +34,14 @@ const Auth = ({ setUser }) => {
         );
         const user = userCredential.user;
 
-        // Guardar información adicional en Firestore
+        // Guardar informacion en Firestore
         await setDoc(doc(firestore, "users", user.uid), {
           email: user.email,
           nickname: nickname,
-          elo: 500, // ELO por defecto
+          elo: 500,
         });
       }
-      navigate("/lobby"); // Redirigir al lobby después de autenticarse
+      navigate("/lobby");
     } catch (error) {
       setError(error.message);
     }

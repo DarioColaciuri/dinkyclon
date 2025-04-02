@@ -19,13 +19,10 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
 
-  // Escucha cambios en la autenticación
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (user) {
         setUser(user);
-
-        // Obtener información adicional del usuario desde Firestore
         const userDoc = await getDoc(doc(firestore, "users", user.uid));
         if (userDoc.exists()) {
           setUserData(userDoc.data());

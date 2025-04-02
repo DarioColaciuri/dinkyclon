@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
-import { ref, onValue, set, remove, get } from "firebase/database";
+import {
+  ref,
+  onValue,
+  set,
+  remove,
+  get,
+  onChildAdded,
+  runTransaction,
+} from "firebase/database";
 import { realtimeDb } from "../firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
 import "../css/Game.css";
@@ -40,40 +48,99 @@ const Game = () => {
     realtimeDb,
     `games/${gameId}/player${isCreator ? "1" : "2"}/connected`
   );
+  const opponentConnectionRef = ref(
+    realtimeDb,
+    `games/${gameId}/player${isCreator ? "2" : "1"}/connected`
+  );
   const currentTurnRef = ref(realtimeDb, `games/${gameId}/currentTurn`);
   const currentCharacterIndexRef = ref(
     realtimeDb,
     `games/${gameId}/currentCharacterIndex`
   );
   const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
+  const damageQueueRef = ref(realtimeDb, `games/${gameId}/damageQueue`);
 
   const map = Level2();
 
-  // === SOLUCIÓN: Limpiar proyectiles al cambiar de turno ===
   useEffect(() => {
-    const cleanupProjectiles = async () => {
-      if (!currentTurn || !user?.uid) return;
+    const processDamageQueue = onChildAdded(
+      damageQueueRef,
+      async (snapshot) => {
+        const { target, characterIndex, amount, isAlly } = snapshot.val();
+        const targetRef = ref(
+          realtimeDb,
+          `games/${gameId}/${target}/characters/${characterIndex}`
+        );
 
-      const snapshot = await get(gameRef);
-      if (!snapshot.exists()) return;
+        try {
+          // Verificación adicional para ver el estado actual
+          const currentChar = await get(targetRef);
+          console.log("Vida antes del daño:", currentChar.val()?.life);
 
-      const gameData = snapshot.val();
-      const isPlayerTurn = currentTurn === user.uid;
-      const targetPlayer = isPlayerTurn ? "player2" : "player1";
+          await runTransaction(targetRef, (character) => {
+            if (!character) return null;
+            const newLife = Math.max(0, (character.life || 100) - amount);
 
-      await set(
-        ref(realtimeDb, `games/${gameId}/${targetPlayer}/characters`),
-        gameData[targetPlayer]?.characters?.map((character) => ({
-          ...character,
-          projectiles: [],
-        })) || []
-      );
+            // Debug adicional
+            console.log(
+              `Aplicando ${amount} de daño a ${target}-${characterIndex}`,
+              {
+                vidaAnterior: character.life,
+                nuevaVida: newLife,
+                esAliado: isAlly,
+              }
+            );
+
+            return { ...character, life: newLife };
+          });
+
+          // Verificación después de la transacción
+          const updatedChar = await get(targetRef);
+          console.log("Vida después del daño:", updatedChar.val()?.life);
+        } catch (error) {
+          console.error("Error al procesar daño:", error);
+        } finally {
+          await remove(snapshot.ref);
+        }
+      }
+    );
+
+    return () => processDamageQueue();
+  }, [gameId]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      alert("El oponente no se ha conectado a tiempo.");
+      handleEndGame();
+    }, 10000);
+
+    const opponentConnectionListener = onValue(
+      opponentConnectionRef,
+      (snapshot) => {
+        if (snapshot.exists() && snapshot.val() === true) {
+          clearTimeout(timeout);
+          setWaitingForOpponent(false);
+        }
+      }
+    );
+
+    return () => {
+      clearTimeout(timeout);
+      opponentConnectionListener();
     };
+  }, [gameId, isCreator]);
 
-    cleanupProjectiles();
-  }, [currentTurn, user?.uid, gameId]);
+  useEffect(() => {
+    const gameEndListener = onValue(gameEndRef, (snapshot) => {
+      if (snapshot.exists() && snapshot.val() === "ended") {
+        alert("El oponente ha abandonado la partida.");
+        navigate("/lobby");
+      }
+    });
 
-  // Cargar imágenes
+    return () => gameEndListener();
+  }, [navigate]);
+
   useEffect(() => {
     const playerImg = new Image();
     playerImg.src = isCreator ? "/char1.png" : "/char2.png";
@@ -82,21 +149,35 @@ const Game = () => {
     const opponentImg = new Image();
     opponentImg.src = isCreator ? "/char2.png" : "/char1.png";
     opponentImg.onload = () => setOpponentImage(opponentImg);
+
+    const bgImg = new Image();
+    bgImg.src = "/back2.webp";
+    bgImg.onload = () => setBackgroundImage(bgImg);
+    bgImg.onerror = () => setBackgroundImage(null);
   }, [isCreator]);
 
-  // Cargar fondo
   useEffect(() => {
-    const level = 2;
-    const image = new Image();
-    image.src = `/back${level}.webp`;
+    if (user?.uid) {
+      set(playerConnectionRef, true);
 
-    image.onload = () => setBackgroundImage(image);
-    image.onerror = () => {
-      setBackgroundImage(null);
-    };
-  }, []);
+      const playerCharactersListener = onValue(playerRef, (snapshot) => {
+        if (snapshot.exists())
+          setPlayerCharacters(snapshot.val().characters || []);
+      });
 
-  // Escuchar cambios en Firebase
+      const opponentCharactersListener = onValue(opponentRef, (snapshot) => {
+        if (snapshot.exists())
+          setOpponentCharacters(snapshot.val().characters || []);
+      });
+
+      return () => {
+        remove(playerConnectionRef);
+        playerCharactersListener();
+        opponentCharactersListener();
+      };
+    }
+  }, [gameId, user?.uid, isCreator]);
+
   useEffect(() => {
     const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
       if (snapshot.exists()) setCurrentTurn(snapshot.val());
@@ -120,7 +201,6 @@ const Game = () => {
     };
   }, []);
 
-  // Temporizador del turno
   useEffect(() => {
     if (currentTurn && !waitingForOpponent) {
       const interval = setInterval(async () => {
@@ -143,73 +223,11 @@ const Game = () => {
   }, [
     currentTurn,
     currentCharacterIndex,
-    user.uid,
-    opponent.uid,
+    user?.uid,
+    opponent?.uid,
     waitingForOpponent,
   ]);
 
-  // Escuchar cambios en los personajes y conexión del oponente
-  useEffect(() => {
-    if (user?.uid) {
-      set(playerConnectionRef, true);
-
-      const playerCharactersListener = onValue(playerRef, (snapshot) => {
-        if (snapshot.exists())
-          setPlayerCharacters(snapshot.val().characters || []);
-      });
-
-      const opponentCharactersListener = onValue(opponentRef, (snapshot) => {
-        if (snapshot.exists())
-          setOpponentCharacters(snapshot.val().characters || []);
-        else setOpponentCharacters([]);
-      });
-
-      const gameEndListener = onValue(gameEndRef, (snapshot) => {
-        if (snapshot.exists() && snapshot.val() === "ended") {
-          alert("El oponente ha abandonado la partida.");
-          navigate("/lobby");
-        }
-      });
-
-      return () => {
-        remove(playerConnectionRef);
-        playerCharactersListener();
-        opponentCharactersListener();
-        gameEndListener();
-      };
-    }
-  }, [gameId, user?.uid, isCreator]);
-
-  // Esperar al oponente
-  useEffect(() => {
-    if (opponentRef) {
-      const timeout = setTimeout(() => {
-        alert("El oponente no se ha conectado a tiempo.");
-        handleEndGame();
-      }, 10000);
-
-      const opponentConnectionRef = ref(
-        realtimeDb,
-        `games/${gameId}/player${isCreator ? "2" : "1"}/connected`
-      );
-      const opponentConnectionListener = onValue(
-        opponentConnectionRef,
-        (snapshot) => {
-          if (snapshot.exists() && snapshot.val() === true) {
-            clearTimeout(timeout);
-            setWaitingForOpponent(false);
-          }
-        }
-      );
-
-      return () => {
-        clearTimeout(timeout);
-        opponentConnectionListener();
-      };
-    }
-  }, [gameId, isCreator]);
-
-  // Finalizar partida
   const handleEndGame = async () => {
     try {
       const gameSnapshot = await get(gameRef);
@@ -228,10 +246,7 @@ const Game = () => {
       );
 
       await remove(playerMatchmakingRef);
-
-      if (opponent?.uid) {
-        await remove(opponentMatchmakingRef);
-      }
+      if (opponent?.uid) await remove(opponentMatchmakingRef);
 
       navigate("/lobby");
     } catch (error) {
@@ -271,8 +286,14 @@ const Game = () => {
             playerRef={playerRef}
             currentCharacterIndex={currentCharacterIndex}
             map={map}
+            gameId={gameId}
             isCreator={isCreator}
+            gameRef={gameRef}
             setChargeProgress={setChargeProgress}
+            opponentRef={opponentRef}
+            realtimeDb={realtimeDb}
+            playerCharacters={playerCharacters}
+            opponentCharacters={opponentCharacters}
           />
           <GameEnd handleEndGame={handleEndGame} />
         </>
