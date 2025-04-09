@@ -12,6 +12,7 @@ const GameCanvas = ({
   user = { uid: null },
   currentCharacterIndex,
   chargeProgress,
+  explosions,
 }) => {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -34,6 +35,30 @@ const GameCanvas = ({
           ctx.fillStyle = "rgba(255, 255, 0, 0.267)";
           ctx.fillRect(col * 10, row * 10, 10, 10);
         }
+      });
+
+      explosions.forEach((exp) => {
+        const gradient = ctx.createRadialGradient(
+          exp.x,
+          exp.y,
+          exp.size * 0.3,
+          exp.x,
+          exp.y,
+          exp.size
+        );
+        gradient.addColorStop(0, `rgba(255, 200, 100, ${exp.alpha})`);
+        gradient.addColorStop(0.7, `rgba(255, 100, 0, ${exp.alpha * 0.7})`);
+        gradient.addColorStop(1, `rgba(255, 0, 0, 0)`);
+
+        ctx.beginPath();
+        ctx.arc(exp.x, exp.y, exp.size, 0, Math.PI * 2);
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(exp.x, exp.y, exp.size * 0.4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 200, ${exp.alpha})`;
+        ctx.fill();
       });
 
       const drawCharacter = (character, image, isOpponent, isActive) => {
@@ -186,6 +211,7 @@ const GameCanvas = ({
     user.uid,
     currentCharacterIndex,
     chargeProgress,
+    explosions,
   ]);
 
   return (

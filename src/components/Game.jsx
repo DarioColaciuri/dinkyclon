@@ -33,6 +33,7 @@ const Game = () => {
   const [playerImage, setPlayerImage] = useState(null);
   const [opponentImage, setOpponentImage] = useState(null);
   const [chargeProgress, setChargeProgress] = useState(0);
+  const [explosions, setExplosions] = useState([]);
 
   const gameRef = ref(realtimeDb, `games/${gameId}`);
   const playerRef = ref(
@@ -73,30 +74,14 @@ const Game = () => {
         );
 
         try {
-          // Verificación adicional para ver el estado actual
           const currentChar = await get(targetRef);
-          console.log("Vida antes del daño:", currentChar.val()?.life);
-
           await runTransaction(targetRef, (character) => {
             if (!character) return null;
             const newLife = Math.max(0, (character.life || 100) - amount);
-
-            // Debug adicional
-            console.log(
-              `Aplicando ${amount} de daño a ${target}-${characterIndex}`,
-              {
-                vidaAnterior: character.life,
-                nuevaVida: newLife,
-                esAliado: isAlly,
-              }
-            );
-
             return { ...character, life: newLife };
           });
 
-          // Verificación después de la transacción
           const updatedChar = await get(targetRef);
-          console.log("Vida después del daño:", updatedChar.val()?.life);
         } catch (error) {
           console.error("Error al procesar daño:", error);
         } finally {
@@ -279,6 +264,7 @@ const Game = () => {
             user={user}
             currentCharacterIndex={currentCharacterIndex}
             chargeProgress={chargeProgress}
+            explosions={explosions}
           />
           <GameControls
             currentTurn={currentTurn}
@@ -294,6 +280,7 @@ const Game = () => {
             realtimeDb={realtimeDb}
             playerCharacters={playerCharacters}
             opponentCharacters={opponentCharacters}
+            setExplosions={setExplosions}
           />
           <GameEnd handleEndGame={handleEndGame} />
         </>

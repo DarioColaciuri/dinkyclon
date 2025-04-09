@@ -13,6 +13,7 @@ const GameControls = ({
   setChargeProgress,
   playerCharacters,
   opponentCharacters,
+  setExplosions,
 }) => {
   const gravity = 0.5;
   const jumpStrength = -10;
@@ -80,6 +81,20 @@ const GameControls = ({
     );
   };
 
+  const addExplosion = (x, y) => {
+    setExplosions((prev) => [
+      ...prev,
+      {
+        x,
+        y,
+        size: 10,
+        maxSize: 30,
+        alpha: 0.8,
+        createdAt: Date.now(),
+      },
+    ]);
+  };
+
   const applyGravity = async () => {
     const snapshot = await get(playerRef);
     const currentCharacters = snapshot.val()?.characters || [];
@@ -111,11 +126,6 @@ const GameControls = ({
     isAlly = false,
   }) => {
     try {
-      console.log(`Registrando daño a ${target}-${characterIndex}`, {
-        cantidad: amount,
-        esAliado: isAlly,
-      });
-
       const damageRef = ref(realtimeDb, `games/${gameId}/damageQueue`);
       await push(damageRef, {
         target,
@@ -256,7 +266,8 @@ const GameControls = ({
     const currentCharacters = snapshot.val()?.characters || [];
 
     const newPlayerCharacters = currentCharacters.map((character, index) => {
-      if (index !== currentCharacterIndex) return character;
+      const isActiveTurn =
+        currentTurn === user.uid && index === currentCharacterIndex;
 
       if (currentTurn !== user.uid) {
         return {
@@ -269,53 +280,47 @@ const GameControls = ({
         character.aimAngle = isCreator ? 0 : 180;
       }
 
-      // Movimiento horizontal
-      let newX = character.position.x;
-      if (keys.a.pressed) newX -= moveAmount;
-      if (keys.d.pressed) newX += moveAmount;
+      if (isActiveTurn) {
+        let newX = character.position.x;
+        if (keys.a.pressed) newX -= moveAmount;
+        if (keys.d.pressed) newX += moveAmount;
 
-      // Salto
-      if (
-        keys.space.pressed &&
-        checkCollision(character.position.x, character.position.y + 1)
-      ) {
-        character.velocityY = jumpStrength;
+        if (
+          keys.space.pressed &&
+          checkCollision(character.position.x, character.position.y + 1)
+        ) {
+          character.velocityY = jumpStrength;
+        }
+
+        if (!checkCollision(newX, character.position.y)) {
+          character.position.x = newX;
+        }
       }
 
-      // Aplicar movimiento si no hay colisión
-      if (!checkCollision(newX, character.position.y)) {
-        character.position.x = newX;
-      }
-
-      // Actualizar proyectiles
       if (character.projectiles) {
         character.projectiles = character.projectiles
           .map((projectile) => {
             if (projectile.active) {
-              // Aplicar gravedad a proyectiles
               if (projectile.velocityY === undefined) {
                 projectile.velocityY = 0;
               }
               projectile.velocityY += gravity * 0.5;
 
-              // Calcular nueva posición
               let nextX = projectile.x + projectile.velocityX;
               let nextY = projectile.y + projectile.velocityY;
 
-              // Verificar colisiones
               if (checkProjectileCollision(nextX, nextY)) {
-                console.log("Proyectil impactó en el mapa");
+                addExplosion(projectile.x, projectile.y);
                 projectile.active = false;
-              }
-              // Colisión con enemigos
-              else if (
-                opponentCharacters.some((char, index) =>
+              } else if (
+                opponentCharacters.some((char) =>
                   checkCharacterCollision(projectile, char)
                 )
               ) {
                 const hitCharIndex = opponentCharacters.findIndex((char) =>
                   checkCharacterCollision(projectile, char)
                 );
+                addExplosion(projectile.x, projectile.y);
                 projectile.active = false;
                 registerHit({
                   target: isCreator ? "player2" : "player1",
@@ -323,10 +328,7 @@ const GameControls = ({
                   amount: 10,
                   isAlly: false,
                 });
-                console.log(`Impacto a enemigo ${hitCharIndex}`);
-              }
-              // Colisión con aliados (excepto con uno mismo)
-              else if (
+              } else if (
                 playerCharacters.some(
                   (char, idx) =>
                     idx !== currentCharacterIndex &&
@@ -338,6 +340,7 @@ const GameControls = ({
                     idx !== currentCharacterIndex &&
                     checkCharacterCollision(projectile, char)
                 );
+                addExplosion(projectile.x, projectile.y);
                 projectile.active = false;
                 registerHit({
                   target: isCreator ? "player1" : "player2",
@@ -345,26 +348,19 @@ const GameControls = ({
                   amount: 10,
                   isAlly: true,
                 });
-                console.log(
-                  `Impacto a aliado ${hitCharIndex}`,
-                  playerCharacters[hitCharIndex]
-                );
-              }
-              // Sin colisiones, actualizar posición
-              else {
+              } else {
                 projectile.x = nextX;
                 projectile.y = nextY;
               }
             }
             return projectile;
           })
-          .filter((p) => p.active); // Filtrar proyectiles inactivos
+          .filter((p) => p.active);
       }
 
       return character;
     });
 
-    // Guardar cambios en Firebase
     await set(playerRef, {
       ...snapshot.val(),
       characters: newPlayerCharacters,
@@ -384,9 +380,7 @@ const GameControls = ({
     let animationFrameId;
 
     const update = () => {
-      if (currentTurn === user.uid) {
-        updateCharacterPosition();
-      }
+      updateCharacterPosition();
       animationFrameId = requestAnimationFrame(update);
     };
 
@@ -414,6 +408,22 @@ const GameControls = ({
 
     return () => clearInterval(intervalId);
   }, [keys.w.pressed, keys.s.pressed, currentTurn, user.uid]);
+
+  useEffect(() => {
+    const explosionInterval = setInterval(() => {
+      setExplosions((prev) =>
+        prev
+          .map((exp) => ({
+            ...exp,
+            size: Math.min(exp.size + 3, exp.maxSize),
+            alpha: exp.alpha - 0.03,
+          }))
+          .filter((exp) => exp.alpha > 0)
+      );
+    }, 50);
+
+    return () => clearInterval(explosionInterval);
+  }, []);
 
   useEffect(() => {
     return () => {
