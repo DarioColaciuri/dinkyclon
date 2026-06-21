@@ -11,8 +11,10 @@ const GameCanvas = ({
   currentTurn,
   user = { uid: null },
   currentCharacterIndex,
+  opponentCharacterIndex,
   chargeProgress,
   explosions,
+  dyingCharacters,
 }) => {
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -39,12 +41,8 @@ const GameCanvas = ({
 
       explosions.forEach((exp) => {
         const gradient = ctx.createRadialGradient(
-          exp.x,
-          exp.y,
-          exp.size * 0.3,
-          exp.x,
-          exp.y,
-          exp.size
+          exp.x, exp.y, exp.size * 0.3,
+          exp.x, exp.y, exp.size
         );
         gradient.addColorStop(0, `rgba(255, 200, 100, ${exp.alpha})`);
         gradient.addColorStop(0.7, `rgba(255, 100, 0, ${exp.alpha * 0.7})`);
@@ -61,8 +59,35 @@ const GameCanvas = ({
         ctx.fill();
       });
 
-      const drawCharacter = (character, image, isOpponent, isActive) => {
+      const isDying = (side, index) => {
+        return dyingCharacters.some((d) => d.side === side && d.index === index);
+      };
+
+      const getDeathProgress = (side, index) => {
+        const d = dyingCharacters.find((x) => x.side === side && x.index === index);
+        if (!d) return 0;
+        return Math.min((Date.now() - d.startTime) / 600, 1);
+      };
+
+      const drawCharacter = (character, image, isOpponent, isActive, index, side) => {
+        const life = character.life ?? 100;
+        const dying = isDying(side, index);
+        const deathProgress = dying ? getDeathProgress(side, index) : 0;
+
+        if (life <= 0 && !dying) return;
+
         if (image) {
+          ctx.save();
+          if (dying) {
+            ctx.globalAlpha = 1 - deathProgress;
+            const scale = 1 + deathProgress * 0.3;
+            const cx = character.position.x + 15;
+            const cy = character.position.y + 20;
+            ctx.translate(cx, cy);
+            ctx.scale(scale, scale);
+            ctx.translate(-cx, -cy);
+          }
+
           ctx.drawImage(
             image,
             character.position.x,
@@ -71,18 +96,24 @@ const GameCanvas = ({
             40
           );
 
-          const barWidth = 30;
-          const barHeight = 5;
-          const barX = character.position.x;
-          const barY = character.position.y - 10;
+          if (!dying) {
+            const barWidth = 30;
+            const barHeight = 5;
+            const barX = character.position.x;
+            const barY = character.position.y - 10;
 
-          ctx.fillStyle = "yellow";
-          ctx.fillRect(barX, barY, barWidth, barHeight);
+            ctx.fillStyle = "yellow";
+            ctx.fillRect(barX, barY, barWidth, barHeight);
 
-          const lifeWidth = (character.life / 100) * barWidth;
-          ctx.fillStyle = "red";
-          ctx.fillRect(barX, barY, lifeWidth, barHeight);
+            const lifeWidth = (life / 100) * barWidth;
+            ctx.fillStyle = "red";
+            ctx.fillRect(barX, barY, lifeWidth, barHeight);
+          }
+
+          ctx.restore();
         }
+
+        if (life <= 0) return;
 
         if (character.projectiles) {
           character.projectiles.forEach((projectile) => {
@@ -150,52 +181,46 @@ const GameCanvas = ({
             const chargeBarY = targetY - crosshairSize - 10;
 
             ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
-            ctx.fillRect(
-              chargeBarX,
-              chargeBarY,
-              chargeBarWidth,
-              chargeBarHeight
-            );
+            ctx.fillRect(chargeBarX, chargeBarY, chargeBarWidth, chargeBarHeight);
 
             ctx.fillStyle = crosshairColor;
             ctx.fillRect(
-              chargeBarX,
-              chargeBarY,
-              chargeBarWidth * chargeProgress,
-              chargeBarHeight
+              chargeBarX, chargeBarY,
+              chargeBarWidth * chargeProgress, chargeBarHeight
             );
 
             ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
             ctx.lineWidth = 1;
-            ctx.strokeRect(
-              chargeBarX,
-              chargeBarY,
-              chargeBarWidth,
-              chargeBarHeight
-            );
+            ctx.strokeRect(chargeBarX, chargeBarY, chargeBarWidth, chargeBarHeight);
           }
         }
       };
 
       const isPlayerTurn = currentTurn === user.uid;
 
-      playerCharacters.forEach((character, index) =>
+      playerCharacters.forEach((character, index) => {
+        const dyingEntry = dyingCharacters.find((d) => d.side === "player" && d.index === index);
         drawCharacter(
           character,
           playerImage,
           false,
-          isPlayerTurn && index === currentCharacterIndex
-        )
-      );
+          isPlayerTurn && index === currentCharacterIndex,
+          index,
+          "player"
+        );
+      });
 
-      opponentCharacters.forEach((character, index) =>
+      opponentCharacters.forEach((character, index) => {
+        const dyingEntry = dyingCharacters.find((d) => d.side === "opponent" && d.index === index);
         drawCharacter(
           character,
           opponentImage,
           true,
-          !isPlayerTurn && index === currentCharacterIndex
-        )
-      );
+          !isPlayerTurn && index === opponentCharacterIndex,
+          index,
+          "opponent"
+        );
+      });
 
       animationFrameId = requestAnimationFrame(draw);
     };
@@ -210,8 +235,10 @@ const GameCanvas = ({
     currentTurn,
     user.uid,
     currentCharacterIndex,
+    opponentCharacterIndex,
     chargeProgress,
     explosions,
+    dyingCharacters,
   ]);
 
   return (

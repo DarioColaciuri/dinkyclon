@@ -1,26 +1,21 @@
-import React, { useState, useEffect } from "react";
-import { getAuth, signOut } from "firebase/auth";
-import {
-  ref,
-  set,
-  onValue,
-  remove,
-  get,
-  runTransaction,
-} from "firebase/database";
-import { auth, realtimeDb } from "../firebase/firebase";
+import React, { useState, useEffect, useRef } from "react";
+import { supabase } from "../supabase/supabase";
 import { useNavigate } from "react-router-dom";
 import "../css/Lobby.css";
+
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
 
 const Lobby = ({ user, userData }) => {
   const [searching, setSearching] = useState(false);
   const [matchFound, setMatchFound] = useState(false);
   const [opponent, setOpponent] = useState(null);
-  const [timeoutId, setTimeoutId] = useState(null);
   const [showModal, setShowModal] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [searchCounter, setSearchCounter] = useState(0);
+  const [hasAccepted, setHasAccepted] = useState(false);
+  const [localElo, setLocalElo] = useState(userData?.elo || 500);
   const navigate = useNavigate();
+  const wsRef = useRef(null);
 
   useEffect(() => {
     if (!user) {
@@ -28,146 +23,136 @@ const Lobby = ({ user, userData }) => {
     }
   }, [user, navigate]);
 
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from("profiles")
+        .select("elo")
+        .eq("id", user.id)
+        .single()
+        .then(({ data }) => {
+          if (data) setLocalElo(data.elo);
+        });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const elo = localElo;
+
+    const ws = new WebSocket(WS_URL);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          type: "auth_data",
+          uid: user.id,
+          nickname: userData?.nickname || user.email,
+          elo,
+        })
+      );
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      switch (msg.type) {
+        case "match_status":
+          if (msg.status === "searching") {
+            setSearching(true);
+            setSearchCounter(0);
+          } else if (msg.status === "cancelled") {
+            setSearching(false);
+            setMatchFound(false);
+            setShowModal(false);
+            setHasAccepted(false);
+          }
+          break;
+
+        case "match_found":
+          setMatchFound(true);
+          setOpponent(msg.opponent);
+          setShowModal(true);
+          setCountdown(10);
+          setHasAccepted(false);
+          break;
+
+        case "match_cancelled":
+          setMatchFound(false);
+          setOpponent(null);
+          setShowModal(false);
+          setSearching(false);
+          setHasAccepted(false);
+          alert(
+            msg.reason === "rejected"
+              ? "Partida rechazada."
+              : msg.reason === "timeout"
+                ? "Tiempo de aceptacion expirado."
+                : "El oponente cancelo la busqueda."
+          );
+          break;
+
+        case "game_start":
+          navigate("/game", {
+            state: {
+              gameId: msg.gameId,
+              user: { uid: user.id, email: user.email },
+              opponent: msg.opponent,
+              isCreator: msg.isCreator,
+            },
+          });
+          break;
+      }
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [user, navigate]);
+
   const handleLogout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
     navigate("/");
   };
 
-  const handleSearchGame = async () => {
-    setSearching(true);
-    setSearchCounter(0);
-
-    const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    await set(matchmakingRef, {
-      uid: user.uid,
-      nickname: userData.nickname,
-      elo: userData.elo,
-      status: "searching",
-    });
-
-    const matchmakingListener = onValue(matchmakingRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data && data.status === "found") {
-        setMatchFound(true);
-        setOpponent(data.opponent);
-        setShowModal(true);
-        setSearchCounter(0);
-        setCountdown(10);
-      } else if (data && data.status === "rejected") {
-        resetMatchmaking();
-        alert("Partida rechazada.");
-      }
-    });
-
-    const id = setTimeout(() => {
-      if (!matchFound) {
-        resetMatchmaking();
-        alert("No se encontró un oponente disponible.");
-      }
-    }, 10000);
-    setTimeoutId(id);
-
-    return () => {
-      matchmakingListener();
-    };
+  const handleSearchGame = () => {
+    if (!wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: "matchmaking", action: "search" })
+    );
   };
 
   const handleCancelSearch = () => {
-    resetMatchmaking();
-    alert("Búsqueda de partida cancelada.");
-  };
-
-  const handleAcceptMatch = async () => {
-    const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    await set(matchmakingRef, {
-      ...opponent,
-      status: "accepted",
-    });
-
-    const gameId = [user.uid, opponent.uid].sort().join("_");
-    const gameRef = ref(realtimeDb, `games/${gameId}`);
-
-    try {
-      await runTransaction(gameRef, (currentData) => {
-        if (currentData === null) {
-          return {
-            player1: {
-              uid: user.uid,
-              nickname: userData.nickname,
-              elo: userData.elo,
-              characters: [
-                { position: { x: 80, y: 100 }, life: 100 },
-                { position: { x: 120, y: 200 }, life: 100 },
-                { position: { x: 160, y: 300 }, life: 100 },
-              ],
-              connected: true,
-            },
-            player2: {
-              uid: opponent.uid,
-              nickname: opponent.nickname,
-              elo: opponent.elo,
-              characters: [
-                { position: { x: 600, y: 100 }, life: 100 },
-                { position: { x: 640, y: 200 }, life: 100 },
-                { position: { x: 680, y: 300 }, life: 100 },
-              ],
-              connected: false,
-            },
-            status: "in_progress",
-            currentTurn: user.uid,
-            currentCharacterIndex: 0,
-            countdown: 30,
-          };
-        } else {
-          return currentData;
-        }
-      });
-
-      navigate("/game", {
-        state: {
-          gameId,
-          user: {
-            uid: user.uid,
-            email: user.email,
-          },
-          opponent: {
-            uid: opponent.uid,
-            nickname: opponent.nickname,
-            elo: opponent.elo,
-          },
-          isCreator: user.uid < opponent.uid,
-        },
-      });
-    } catch (error) {
-      console.error("Error al crear la partida:", error);
-      alert("Hubo un error al crear la partida. Inténtalo de nuevo.");
-    }
-  };
-
-  const handleRejectMatch = async () => {
-    const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    await set(matchmakingRef, {
-      ...opponent,
-      status: "rejected",
-    });
-
-    resetMatchmaking();
+    if (!wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: "matchmaking", action: "cancel" })
+    );
+    setSearching(false);
+    setMatchFound(false);
     setShowModal(false);
   };
 
-  const resetMatchmaking = () => {
-    setSearching(false);
-    setMatchFound(false);
-    setOpponent(null);
-    setSearchCounter(0);
-    setCountdown(10);
-    const matchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-    remove(matchmakingRef);
+  const handleAcceptMatch = () => {
+    if (!wsRef.current || wsRef.current.readyState !== 1) return;
+    if (hasAccepted) return;
+    setHasAccepted(true);
+    wsRef.current.send(
+      JSON.stringify({ type: "match_response", action: "accept" })
+    );
   };
 
-  useEffect(() => {
-    if (timeoutId) clearTimeout(timeoutId);
-  }, [timeoutId]);
+  const handleRejectMatch = () => {
+    if (!wsRef.current || wsRef.current.readyState !== 1) return;
+    wsRef.current.send(
+      JSON.stringify({ type: "match_response", action: "reject" })
+    );
+    setMatchFound(false);
+    setOpponent(null);
+    setShowModal(false);
+    setSearching(false);
+  };
 
   useEffect(() => {
     if (searching && !matchFound) {
@@ -183,9 +168,9 @@ const Lobby = ({ user, userData }) => {
       setCountdown(10);
       const interval = setInterval(() => {
         setCountdown((prev) => {
-          if (prev === 1) {
+          if (prev <= 1) {
+            handleRejectMatch();
             alert("El tiempo para aceptar la partida ha expirado.");
-            resetMatchmaking();
             return 0;
           }
           return prev - 1;
@@ -195,43 +180,6 @@ const Lobby = ({ user, userData }) => {
     }
   }, [matchFound, showModal]);
 
-  useEffect(() => {
-    const matchmakingRef = ref(realtimeDb, "matchmaking");
-
-    const matchmakingListener = onValue(matchmakingRef, (snapshot) => {
-      const matchmakingData = snapshot.val();
-      if (matchmakingData) {
-        const players = Object.values(matchmakingData);
-        const searchingPlayers = players.filter(
-          (p) => p.status === "searching"
-        );
-
-        if (searchingPlayers.length >= 2) {
-          const [player1, player2] = searchingPlayers;
-
-          const player1Ref = ref(realtimeDb, `matchmaking/${player1.uid}`);
-          const player2Ref = ref(realtimeDb, `matchmaking/${player2.uid}`);
-
-          set(player1Ref, {
-            ...player1,
-            status: "found",
-            opponent: player2,
-          });
-
-          set(player2Ref, {
-            ...player2,
-            status: "found",
-            opponent: player1,
-          });
-        }
-      }
-    });
-
-    return () => {
-      matchmakingListener();
-    };
-  }, []);
-
   if (!user) {
     return null;
   }
@@ -239,7 +187,7 @@ const Lobby = ({ user, userData }) => {
   return (
     <div className="lobby-container">
       <h2>Bienvenido, {userData?.nickname || user.email}</h2>
-      <p>ELO: {userData?.elo || 500}</p>
+      <p>ELO: {localElo}</p>
 
       {!searching && !matchFound && (
         <button onClick={handleSearchGame}>Buscar partida</button>
@@ -248,7 +196,7 @@ const Lobby = ({ user, userData }) => {
       {searching && !matchFound && (
         <>
           <p>Buscando partida... {searchCounter}s</p>
-          <button onClick={handleCancelSearch}>Cancelar búsqueda</button>
+          <button onClick={handleCancelSearch}>Cancelar busqueda</button>
         </>
       )}
 
@@ -259,14 +207,20 @@ const Lobby = ({ user, userData }) => {
               Oponente encontrado: {opponent.nickname} ({opponent.elo} ELO)
             </p>
             <p>Tiempo restante: {countdown} segundos</p>
-            <button onClick={handleAcceptMatch}>Aceptar</button>
-            <button onClick={handleRejectMatch}>Rechazar</button>
+            {hasAccepted ? (
+              <p className="waiting-text">Esperando al oponente...</p>
+            ) : (
+              <>
+                <button onClick={handleAcceptMatch}>Aceptar</button>
+                <button onClick={handleRejectMatch}>Rechazar</button>
+              </>
+            )}
           </div>
         </div>
       )}
 
       <button onClick={handleLogout} className="logout-button">
-        Cerrar sesión
+        Cerrar sesion
       </button>
     </div>
   );

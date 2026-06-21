@@ -32,3 +32,128 @@
   justify-content: space-around;
   text-align: center;
 }
+
+.result-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.result-card {
+  background: #1a1a2e;
+  border: 2px solid #e94560;
+  border-radius: 16px;
+  padding: 40px 60px;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(233, 69, 96, 0.3);
+}
+
+.result-card h1 {
+  margin: 0 0 20px 0;
+  font-size: 3rem;
+  letter-spacing: 0.1em;
+}
+
+.result-win {
+  color: #4ade80;
+  text-shadow: 0 0 20px rgba(74, 222, 128, 0.5);
+}
+
+.result-lose {
+  color: #e94560;
+  text-shadow: 0 0 20px rgba(233, 69, 96, 0.5);
+}
+
+.result-elo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 30px;
+  font-size: 1.4rem;
+}
+
+.elo-positive {
+  color: #4ade80;
+  font-weight: bold;
+}
+
+.elo-negative {
+  color: #e94560;
+  font-weight: bold;
+}
+
+.elo-new {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1rem;
+}
+
+.result-button {
+  padding: 14px 40px;
+  border: none;
+  border-radius: 8px;
+  background: #e94560;
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.result-button:hover {
+  background: #c7314e;
+}
+
+.confirm-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 20px;
+}
+
+.confirm-warning {
+  color: #ffc107;
+  font-size: 1rem;
+  margin: 0;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 16px;
+}
+
+.confirm-yes {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 6px;
+  background: #dc3545;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.confirm-yes:hover {
+  background: #b02a37;
+}
+
+.confirm-no {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 6px;
+  background: #6c757d;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.confirm-no:hover {
+  background: #545b62;
+}
+
+.waiting-text {
+  color: #4ade80;
+  font-weight: bold;
+}

@@ -1,21 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  ref,
-  onValue,
-  set,
-  remove,
-  get,
-  onChildAdded,
-  runTransaction,
-} from "firebase/database";
-import { realtimeDb } from "../firebase/firebase";
 import { useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "../supabase/supabase";
 import "../css/Game.css";
 import Level2 from "./levels/Level2";
 import GameCanvas from "./GameCanvas";
 import GameInfo from "./GameInfo";
 import GameControls from "./GameControls";
 import GameEnd from "./GameEnd";
+
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
+const DEATH_ANIM_MS = 600;
 
 const Game = () => {
   const canvasRef = useRef(null);
@@ -25,106 +19,25 @@ const Game = () => {
 
   const [playerCharacters, setPlayerCharacters] = useState([]);
   const [opponentCharacters, setOpponentCharacters] = useState([]);
-  const [waitingForOpponent, setWaitingForOpponent] = useState(true);
   const [currentTurn, setCurrentTurn] = useState(null);
   const [countdown, setCountdown] = useState(30);
   const [currentCharacterIndex, setCurrentCharacterIndex] = useState(0);
+  const [opponentCharacterIndex, setOpponentCharacterIndex] = useState(0);
+  const [chargeProgress, setChargeProgress] = useState(0);
+  const [explosions, setExplosions] = useState([]);
+  const [gameOpponent, setGameOpponent] = useState(opponent);
+  const [gameStarted, setGameStarted] = useState(false);
   const [backgroundImage, setBackgroundImage] = useState(null);
   const [playerImage, setPlayerImage] = useState(null);
   const [opponentImage, setOpponentImage] = useState(null);
-  const [chargeProgress, setChargeProgress] = useState(0);
-  const [explosions, setExplosions] = useState([]);
+  const [dyingCharacters, setDyingCharacters] = useState([]);
+  const [gameResult, setGameResult] = useState(null);
+  const [ws, setWs] = useState(null);
+  const eloUpdateRef = useRef(null);
 
-  const gameRef = ref(realtimeDb, `games/${gameId}`);
-  const playerRef = ref(
-    realtimeDb,
-    `games/${gameId}/player${isCreator ? "1" : "2"}`
-  );
-  const opponentRef = ref(
-    realtimeDb,
-    `games/${gameId}/player${isCreator ? "2" : "1"}`
-  );
-  const gameEndRef = ref(realtimeDb, `games/${gameId}/status`);
-  const playerConnectionRef = ref(
-    realtimeDb,
-    `games/${gameId}/player${isCreator ? "1" : "2"}/connected`
-  );
-  const opponentConnectionRef = ref(
-    realtimeDb,
-    `games/${gameId}/player${isCreator ? "2" : "1"}/connected`
-  );
-  const currentTurnRef = ref(realtimeDb, `games/${gameId}/currentTurn`);
-  const currentCharacterIndexRef = ref(
-    realtimeDb,
-    `games/${gameId}/currentCharacterIndex`
-  );
-  const countdownRef = ref(realtimeDb, `games/${gameId}/countdown`);
-  const damageQueueRef = ref(realtimeDb, `games/${gameId}/damageQueue`);
+  const prevLivesRef = useRef({ player: [100, 100, 100], opponent: [100, 100, 100] });
 
   const map = Level2();
-
-  useEffect(() => {
-    const processDamageQueue = onChildAdded(
-      damageQueueRef,
-      async (snapshot) => {
-        const { target, characterIndex, amount, isAlly } = snapshot.val();
-        const targetRef = ref(
-          realtimeDb,
-          `games/${gameId}/${target}/characters/${characterIndex}`
-        );
-
-        try {
-          const currentChar = await get(targetRef);
-          await runTransaction(targetRef, (character) => {
-            if (!character) return null;
-            const newLife = Math.max(0, (character.life || 100) - amount);
-            return { ...character, life: newLife };
-          });
-
-          const updatedChar = await get(targetRef);
-        } catch (error) {
-          console.error("Error al procesar daño:", error);
-        } finally {
-          await remove(snapshot.ref);
-        }
-      }
-    );
-
-    return () => processDamageQueue();
-  }, [gameId]);
-
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      alert("El oponente no se ha conectado a tiempo.");
-      handleEndGame();
-    }, 10000);
-
-    const opponentConnectionListener = onValue(
-      opponentConnectionRef,
-      (snapshot) => {
-        if (snapshot.exists() && snapshot.val() === true) {
-          clearTimeout(timeout);
-          setWaitingForOpponent(false);
-        }
-      }
-    );
-
-    return () => {
-      clearTimeout(timeout);
-      opponentConnectionListener();
-    };
-  }, [gameId, isCreator]);
-
-  useEffect(() => {
-    const gameEndListener = onValue(gameEndRef, (snapshot) => {
-      if (snapshot.exists() && snapshot.val() === "ended") {
-        alert("El oponente ha abandonado la partida.");
-        navigate("/lobby");
-      }
-    });
-
-    return () => gameEndListener();
-  }, [navigate]);
 
   useEffect(() => {
     const playerImg = new Image();
@@ -142,113 +55,108 @@ const Game = () => {
   }, [isCreator]);
 
   useEffect(() => {
-    if (user?.uid) {
-      set(playerConnectionRef, true);
-
-      const playerCharactersListener = onValue(playerRef, (snapshot) => {
-        if (snapshot.exists())
-          setPlayerCharacters(snapshot.val().characters || []);
-      });
-
-      const opponentCharactersListener = onValue(opponentRef, (snapshot) => {
-        if (snapshot.exists())
-          setOpponentCharacters(snapshot.val().characters || []);
-      });
-
-      return () => {
-        remove(playerConnectionRef);
-        playerCharactersListener();
-        opponentCharactersListener();
-      };
+    if (!user || !gameId) {
+      navigate("/lobby");
+      return;
     }
-  }, [gameId, user?.uid, isCreator]);
 
-  useEffect(() => {
-    const currentTurnListener = onValue(currentTurnRef, (snapshot) => {
-      if (snapshot.exists()) setCurrentTurn(snapshot.val());
-    });
+    const ws = new WebSocket(WS_URL);
 
-    const currentCharacterIndexListener = onValue(
-      currentCharacterIndexRef,
-      (snapshot) => {
-        if (snapshot.exists()) setCurrentCharacterIndex(snapshot.val());
+    ws.onopen = () => {
+      setWs(ws);
+      ws.send(JSON.stringify({ type: "auth_data", uid: user.uid }));
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      switch (msg.type) {
+        case "game_state":
+          setPlayerCharacters(msg.playerCharacters);
+          setOpponentCharacters(msg.opponentCharacters);
+          setCurrentTurn(msg.currentTurn);
+          setCurrentCharacterIndex(msg.currentCharacterIndex);
+          setOpponentCharacterIndex(msg.opponentCharacterIndex || 0);
+          setCountdown(msg.countdown);
+          setChargeProgress(msg.chargeProgress);
+          setExplosions(msg.explosions);
+          if (msg.opponent) setGameOpponent(msg.opponent);
+
+          detectDeaths(msg.playerCharacters, "player");
+          detectDeaths(msg.opponentCharacters, "opponent");
+
+          setGameStarted(true);
+          break;
+
+        case "game_ended":
+          eloUpdateRef.current = msg.eloUpdate
+            ? { elo: msg.eloUpdate[user.uid], uid: user.uid }
+            : null;
+          setGameResult({
+            reason: msg.reason,
+            won: msg.winner === user.uid,
+            isQuitter: msg.quitter === user.uid,
+            eloDelta: msg.eloDelta || 0,
+            newElo: msg.eloUpdate?.[user.uid] ?? null,
+          });
+          break;
       }
-    );
-
-    const countdownListener = onValue(countdownRef, (snapshot) => {
-      if (snapshot.exists()) setCountdown(snapshot.val());
-    });
+    };
 
     return () => {
-      currentTurnListener();
-      currentCharacterIndexListener();
-      countdownListener();
+      ws.close();
     };
-  }, []);
+  }, [user, gameId, navigate]);
 
-  useEffect(() => {
-    if (currentTurn && !waitingForOpponent) {
-      const interval = setInterval(async () => {
-        const snapshot = await get(countdownRef);
-        const currentCountdown = snapshot.val();
+  const detectDeaths = (chars, side) => {
+    const prevLives = side === "player" ? prevLivesRef.current.player : prevLivesRef.current.opponent;
+    const newDying = [];
 
-        if (currentCountdown === 0) {
-          const nextTurn = currentTurn === user.uid ? opponent.uid : user.uid;
-          const nextCharacterIndex = (currentCharacterIndex + 1) % 3;
-          await set(currentTurnRef, nextTurn);
-          await set(currentCharacterIndexRef, nextCharacterIndex);
-          await set(countdownRef, 30);
-        } else {
-          await set(countdownRef, currentCountdown - 1);
-        }
-      }, 1000);
-
-      return () => clearInterval(interval);
-    }
-  }, [
-    currentTurn,
-    currentCharacterIndex,
-    user?.uid,
-    opponent?.uid,
-    waitingForOpponent,
-  ]);
-
-  const handleEndGame = async () => {
-    try {
-      const gameSnapshot = await get(gameRef);
-      if (!gameSnapshot.exists()) {
-        navigate("/lobby");
-        return;
+    chars.forEach((c, i) => {
+      if (prevLives[i] > 0 && (c.life ?? 100) <= 0) {
+        newDying.push({ side, index: i, startTime: Date.now() });
       }
+    });
 
-      await set(gameEndRef, "ended");
-      await remove(gameRef);
-
-      const playerMatchmakingRef = ref(realtimeDb, `matchmaking/${user.uid}`);
-      const opponentMatchmakingRef = ref(
-        realtimeDb,
-        `matchmaking/${opponent?.uid}`
-      );
-
-      await remove(playerMatchmakingRef);
-      if (opponent?.uid) await remove(opponentMatchmakingRef);
-
-      navigate("/lobby");
-    } catch (error) {
-      alert("Hubo un error al finalizar la partida. Inténtalo de nuevo.");
+    if (newDying.length > 0) {
+      setDyingCharacters((prev) => [...prev, ...newDying]);
+      newDying.forEach((d) => {
+        setTimeout(() => {
+          setDyingCharacters((prev) => prev.filter((x) => x !== d));
+        }, DEATH_ANIM_MS);
+      });
     }
+
+    prevLivesRef.current[side] = chars.map((c) => c.life ?? 100);
+  };
+
+  const handleEndGame = () => {
+    if (ws && ws.readyState === 1) {
+      ws.send(JSON.stringify({ type: "end_game" }));
+    }
+  };
+
+  const handleReturnToLobby = async () => {
+    if (eloUpdateRef.current) {
+      const { elo, uid } = eloUpdateRef.current;
+      await supabase
+        .from("profiles")
+        .update({ elo })
+        .eq("id", uid);
+    }
+    navigate("/lobby");
   };
 
   return (
     <div className="game-container">
-      {waitingForOpponent ? (
-        <p>Esperando al oponente...</p>
+      {!gameStarted ? (
+        <p>Conectando al servidor...</p>
       ) : (
         <>
           <GameInfo
             currentTurn={currentTurn}
             user={user}
-            opponent={opponent}
+            opponent={gameOpponent}
             countdown={countdown}
             currentCharacterIndex={currentCharacterIndex}
           />
@@ -263,26 +171,46 @@ const Game = () => {
             currentTurn={currentTurn}
             user={user}
             currentCharacterIndex={currentCharacterIndex}
+            opponentCharacterIndex={opponentCharacterIndex}
             chargeProgress={chargeProgress}
             explosions={explosions}
+            dyingCharacters={dyingCharacters}
           />
           <GameControls
+            ws={ws}
             currentTurn={currentTurn}
             user={user}
-            playerRef={playerRef}
-            currentCharacterIndex={currentCharacterIndex}
-            map={map}
-            gameId={gameId}
-            isCreator={isCreator}
-            gameRef={gameRef}
-            setChargeProgress={setChargeProgress}
-            opponentRef={opponentRef}
-            realtimeDb={realtimeDb}
-            playerCharacters={playerCharacters}
-            opponentCharacters={opponentCharacters}
-            setExplosions={setExplosions}
           />
           <GameEnd handleEndGame={handleEndGame} />
+
+          {gameResult && (
+            <div className="result-overlay">
+              <div className="result-card">
+                <h1 className={gameResult.won ? "result-win" : "result-lose"}>
+                  {gameResult.reason === "victory"
+                    ? gameResult.won
+                      ? "GANASTE"
+                      : "PERDISTE"
+                    : gameResult.isQuitter
+                      ? "TE HAS RETIRADO"
+                      : "TU OPONENTE SE RETIRO"}
+                </h1>
+
+                <div className="result-elo">
+                  <span className={gameResult.won ? "elo-positive" : "elo-negative"}>
+                    {gameResult.won ? "+" : "-"}{gameResult.eloDelta} ELO
+                  </span>
+                  {gameResult.newElo !== null && (
+                    <span className="elo-new">Nuevo ELO: {gameResult.newElo}</span>
+                  )}
+                </div>
+
+                <button className="result-button" onClick={handleReturnToLobby}>
+                  Volver al lobby
+                </button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

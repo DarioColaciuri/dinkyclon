@@ -1,12 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-} from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { auth, firestore } from "../firebase/firebase";
+import { supabase } from "../supabase/supabase";
 import "../css/Auth.css";
 
 const Auth = ({ setUser }) => {
@@ -23,23 +17,20 @@ const Auth = ({ setUser }) => {
 
     try {
       if (isLogin) {
-        // Iniciar sesión
-        await signInWithEmailAndPassword(auth, email, password);
-      } else {
-        // Registrarse
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
+        const { error } = await supabase.auth.signInWithPassword({
           email,
-          password
-        );
-        const user = userCredential.user;
-
-        // Guardar informacion en Firestore
-        await setDoc(doc(firestore, "users", user.uid), {
-          email: user.email,
-          nickname: nickname,
-          elo: 500,
+          password,
         });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { nickname },
+          },
+        });
+        if (error) throw error;
       }
       navigate("/lobby");
     } catch (error) {
@@ -49,7 +40,7 @@ const Auth = ({ setUser }) => {
 
   return (
     <div className="auth-container">
-      <h2>{isLogin ? "Iniciar sesión" : "Registrarse"}</h2>
+      <h2>{isLogin ? "Iniciar sesion" : "Registrarse"}</h2>
       <form onSubmit={handleAuth} className="auth-form">
         {!isLogin && (
           <input
@@ -62,27 +53,27 @@ const Auth = ({ setUser }) => {
         )}
         <input
           type="email"
-          placeholder="Correo electrónico"
+          placeholder="Correo electronico"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
         <input
           type="password"
-          placeholder="Contraseña"
+          placeholder="Contrasena"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
         <button type="submit">
-          {isLogin ? "Iniciar sesión" : "Registrarse"}
+          {isLogin ? "Iniciar sesion" : "Registrarse"}
         </button>
       </form>
       {error && <p className="error">{error}</p>}
       <button onClick={() => setIsLogin(!isLogin)} className="toggle-button">
         {isLogin
-          ? "¿No tienes cuenta? Regístrate"
-          : "¿Ya tienes cuenta? Inicia sesión"}
+          ? "No tienes cuenta? Registrate"
+          : "Ya tienes cuenta? Inicia sesion"}
       </button>
     </div>
   );

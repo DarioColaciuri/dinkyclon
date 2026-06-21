@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { auth } from "./firebase/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { firestore } from "./firebase/firebase";
+import { supabase } from "./supabase/supabase";
 import Auth from "./components/Auth";
 import Lobby from "./components/Lobby";
 import Game from "./components/Game";
@@ -20,21 +18,36 @@ const App = () => {
   const [userData, setUserData] = useState(null);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        setUser(user);
-        const userDoc = await getDoc(doc(firestore, "users", user.uid));
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
-        }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setUser(session.user);
+        fetchProfile(session.user);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+        fetchProfile(session.user);
       } else {
         setUser(null);
         setUserData(null);
       }
     });
 
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
+
+  const fetchProfile = async (authUser) => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", authUser.id)
+      .single();
+    setUserData(data);
+  };
 
   return (
     <Routes>
